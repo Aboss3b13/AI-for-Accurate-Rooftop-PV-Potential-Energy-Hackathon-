@@ -7,6 +7,7 @@ import {
   ArrowUpRight,
   Download,
 } from "lucide-react";
+import Help from "./Help";
 import type { Analysis, Mode } from "../types";
 type Props = {
   result: Analysis | null;
@@ -62,6 +63,21 @@ export default function AnalysisPanel({
             {stats ? stats.additional_kwp.toFixed(2) : "—"} <small>kWp</small>
           </strong>
           <span>additional capacity</span>
+          <Help title="kWp">
+            Kilowatt-peak is the power the new panels would make at full
+            sunshine. It is the number installers quote. A typical Swiss house
+            fits somewhere around 5–15 kWp.
+          </Help>
+        </div>
+        <div className="mode-control-head">
+          <span>How tightly to pack the panels</span>
+          <Help title="Conservative, Recommended, Maximum">
+            How much empty space to leave around roof edges, chimneys and
+            existing panels. <b>Conservative</b> leaves the most room and gives
+            the safest number. <b>Recommended</b> is a sensible first estimate.
+            <b> Maximum</b> packs them tightest and needs an installer to confirm
+            it is buildable.
+          </Help>
         </div>
         <div className="mode-control">
           {MODES.map((m) => (
@@ -87,35 +103,73 @@ export default function AnalysisPanel({
         </p>
         <dl className="metrics">
           <div>
-            <dt>Existing PV regions</dt>
+            <dt>
+              Existing PV regions
+              <Help title="Existing PV regions">
+                Areas where the AI found solar panels already installed. Those are left alone — SolarFit only counts panels you could still add.
+              </Help>
+            </dt>
             <dd>{stats?.existing_pv_regions ?? "—"}</dd>
           </div>
           <div>
-            <dt>Roof area</dt>
+            <dt>
+              Roof area
+              <Help title="Roof area">
+                The size of the roof outline as seen from above, in square metres. A pitched roof is slightly larger in reality than this flat, top-down view.
+              </Help>
+            </dt>
             <dd>{stats ? `${stats.roof_area_m2} m²` : "—"}</dd>
           </div>
           <div>
-            <dt>Usable area</dt>
+            <dt>
+              Usable area
+              <Help title="Usable area">
+                What is left of the roof after removing existing panels, chimneys, windows and the safety gap around every edge. Panels can only go here.
+              </Help>
+            </dt>
             <dd>{stats ? `${stats.usable_area_m2} m²` : "—"}</dd>
           </div>
           <div>
-            <dt>Roof covered by new panels</dt>
+            <dt>
+              Roof covered by new panels
+              <Help title="Roof covered by new panels">
+                How much of the whole roof the proposed panels physically cover. Real roofs rarely exceed about 70–80% because of edges and obstacles.
+              </Help>
+            </dt>
             <dd>{stats ? `${stats.roof_utilisation}%` : "—"}</dd>
           </div>
           <div>
-            <dt>Selected orientation</dt>
+            <dt>
+              Selected orientation
+              <Help title="Selected orientation">
+                Whether the panels fit better standing up (portrait) or lying flat (landscape). SolarFit tries both and keeps whichever fits more.
+              </Help>
+            </dt>
             <dd className="capitalize">{stats?.orientation ?? "—"}</dd>
           </div>
           {stats?.annual_energy_kwh != null && (
             <div>
-              <dt>Estimated annual energy</dt>
+              <dt>
+              Estimated annual energy
+              <Help title="Estimated annual energy">
+                A rough guess at the electricity the new panels would make in a year, in kilowatt-hours. A Swiss household uses roughly 4,500 kWh per year.
+              </Help>
+            </dt>
               <dd>{stats.annual_energy_kwh.toLocaleString()} kWh</dd>
             </div>
           )}
         </dl>
         <div className="confidence">
           <div>
-            <span>Mean detection confidence</span>
+            <span>
+              Mean detection confidence
+              <Help title="Detection confidence">
+                How sure the AI is about what it found in the photo. Low
+                confidence means you should look at the image yourself and mark
+                anything it missed. It is not a judgement of whether the roof
+                suits solar.
+              </Help>
+            </span>
             <strong>
               {result?.confidence.mean_detection != null
                 ? `${Math.round(result.confidence.mean_detection * 100)}%`

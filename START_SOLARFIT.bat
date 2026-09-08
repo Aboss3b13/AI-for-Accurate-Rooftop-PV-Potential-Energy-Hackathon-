@@ -3,6 +3,7 @@ setlocal
 cd /d "%~dp0"
 title SolarFit - Local Rooftop Analysis
 if not exist ".venv\solarfit-ready" goto setup
+if not exist ".venv\solarfit-map-ready" goto setup
 if not exist "frontend\dist\index.html" goto setup
 goto run
 :setup

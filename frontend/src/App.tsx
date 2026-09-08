@@ -1,4 +1,9 @@
 import AnalysisPanel from "./components/AnalysisPanel";
+import SatelliteMap from "./components/SatelliteMap";
+import MapContext from "./components/MapContext";
+import Help from "./components/Help";
+import { prepareMapCapture, type MapCapture, type MapPick } from "./mapTypes";
+import "./map.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Sun,
@@ -15,6 +20,7 @@ import {
   LoaderCircle,
   Plus,
   Image as ImageIcon,
+  Map as MapIcon,
 } from "lucide-react";
 import RoofCanvas, {
   layerNames,
@@ -43,6 +49,15 @@ type Example = {
 };
 
 export default function App() {
+  const [sourceView, setSourceView] = useState<"map" | "editor">("map");
+  const [mapCapture, setMapCapture] = useState<MapCapture | null>(null);
+  const [mapBusy, setMapBusy] = useState(false),
+    [mapError, setMapError] = useState("");
+  const [mapEdited, setMapEdited] = useState(false),
+    [pendingMapAnalysis, setPendingMapAnalysis] = useState(false);
+  const mapRequest = useRef<AbortController | null>(null);
+  const loadVersion = useRef(0);
+  useEffect(()=>()=>mapRequest.current?.abort(),[]);
   const [file, setFile] = useState<File | null>(null),
     [url, setUrl] = useState(""),
     [size, setSize] = useState<[number, number]>([1000, 700]);
@@ -137,15 +152,17 @@ export default function App() {
     setBusy(false);
     setComparisons({});
   };
-  async function loadFile(f: File, example?: Example) {
+  async function loadFile(f: File, example?: Example, fromMap=false) {
     if (!["image/png", "image/jpeg", "image/webp"].includes(f.type)) {
       setError("Please upload PNG, JPG or WebP.");
-      return;
+      return false;
     }
     if (f.size > 20 * 1024 * 1024) {
       setError("Please use an image smaller than 20 MB.");
-      return;
+      return false;
     }
+    const version=++loadVersion.current;
+    if(!fromMap){mapRequest.current?.abort();setMapBusy(false);setMapError('');}
     invalidate();
     setError("");
     const u = URL.createObjectURL(f);
@@ -153,9 +170,14 @@ export default function App() {
       const image = new window.Image();
       image.src = u;
       await image.decode();
+      if(version!==loadVersion.current){URL.revokeObjectURL(u);return false;}
       if (image.width * image.height > 25_000_000)
         throw Error("Crop the image to less than 25 megapixels.");
       setFile(f);
+      setSourceView("editor");
+      setMapCapture(null);
+      setMapEdited(false);
+      setPendingMapAnalysis(false);
       setUrl(u);
       setSize([image.naturalWidth, image.naturalHeight]);
       setRoof(example?.roof || []);
@@ -168,9 +190,54 @@ export default function App() {
       setDistance("");
       setNote(example?.note || "");
       setAi(true);
+      return true;
     } catch (e) {
       URL.revokeObjectURL(u);
       setError(String(e));
+      return false;
+    }
+  }
+  async function pickMapRoof(pick: MapPick) {
+    mapRequest.current?.abort();
+    const controller = new AbortController();
+    mapRequest.current = controller;
+    invalidate();
+    setMapBusy(true);
+    setMapError("");
+    try {
+      const capture = await prepareMapCapture(pick, controller.signal);
+      if (controller.signal.aborted) return;
+      const bytes = Uint8Array.from(atob(capture.image_base64), (c) =>
+        c.charCodeAt(0),
+      );
+      const loaded = await loadFile(
+        new File(
+          [bytes],
+          `Swiss roof ${capture.selected_roof_id || "capture"}.jpg`,
+          { type: "image/jpeg" },
+        ),
+        {
+          name: "Swiss map capture",
+          image: "",
+          roof: capture.roof,
+          objects: capture.objects,
+          pixels_per_metre: capture.pixels_per_metre,
+          note: "Aerial imagery © swisstopo · Roof boundaries: Sonnendach / Swiss Federal Office of Energy.",
+        },
+        true,
+      );
+      if (!loaded || controller.signal.aborted) return;
+      setMapCapture(capture);
+      setMapEdited(false);
+      setAngle(capture.angle);
+      setYield("");
+      setTool(capture.roof.length > 2 ? "view" : "roof");
+      setPendingMapAnalysis(capture.roof.length > 2);
+    } catch (e) {
+      if (!controller.signal.aborted)
+        setMapError(e instanceof Error ? e.message : "Map capture failed.");
+    } finally {
+      if (!controller.signal.aborted) setMapBusy(false);
     }
   }
   async function loadExample(e: Example) {
@@ -199,8 +266,10 @@ export default function App() {
       invalidate();
     } else if (p.length >= 3) {
       invalidate();
-      if (tool === "roof") setRoof(p);
-      else setObjects([...objects, { polygon: p, kind: tool as Kind }]);
+      if (tool === "roof") {
+        setRoof(p);
+        setMapEdited(true);
+      } else setObjects([...objects, { polygon: p, kind: tool as Kind }]);
     }
     setDraft([]);
     setTool("view");
@@ -294,6 +363,12 @@ export default function App() {
     draft.length,
   ]);
   useEffect(() => {
+    if (pendingMapAnalysis && file && roof.length > 2) {
+      setPendingMapAnalysis(false);
+      void analyse();
+    }
+  }, [pendingMapAnalysis, file, roof, analyse]);
+  useEffect(() => {
     if (!auto) return;
     request.current++;
     abort.current?.abort();
@@ -332,7 +407,12 @@ export default function App() {
     const blob = new Blob(
       [
         JSON.stringify(
-          { ...result, input: { roof, objects, panel, mode, angle } },
+          {
+            ...result,
+            input: { roof, objects, panel, mode, angle },
+            map_provenance: mapCapture?.provenance ?? null,
+            boundary_adjusted: mapEdited,
+          },
           null,
           2,
         ),
@@ -360,8 +440,15 @@ export default function App() {
           SolarFit<span className="brand-tag">ROOFTOP INTELLIGENCE</span>
         </a>
         <div className="header-right">
+          <button
+            className="upload-button"
+            onClick={() => setSourceView("map")}
+          >
+            <MapIcon size={16} />
+            Satellite map
+          </button>
           <span className="local-status">
-            <i /> Runs locally · Your images stay here
+            <i /> Local AI · Swiss maps online
           </span>
           <button
             className="upload-button"
@@ -402,8 +489,58 @@ export default function App() {
         </section>
         <div className="workspace">
           <section className="left-column">
+            <div className="source-switch">
+              <button
+                className={sourceView === "map" ? "selected" : ""}
+                onClick={() => setSourceView("map")}
+              >
+                <MapIcon size={16} />
+                Satellite map
+              </button>
+              <button
+                className={sourceView === "editor" ? "selected" : ""}
+                onClick={() => setSourceView("editor")}
+              >
+                <Pentagon size={16} />
+                {file ? "Roof editor" : "Upload & draw"}
+              </button>
+              <span>
+                {sourceView === "map"
+                  ? "Find a building. Click its roof."
+                  : "Review and adjust your analysis."}
+              </span>
+            </div>
+            <SatelliteMap
+              visible={sourceView === "map"}
+              onPick={pickMapRoof}
+              busy={mapBusy}
+              error={mapError}
+              capture={mapCapture}
+            />
+            {sourceView === "editor" && mapCapture && (
+              <MapContext
+                capture={mapCapture}
+                onPick={pickMapRoof}
+                busy={mapBusy}
+                edited={mapEdited}
+                onReset={() => {
+                  invalidate();
+                  setRoof(mapCapture.roof);
+                  setAngle(mapCapture.angle);
+                  setMapEdited(false);
+                  setTool("view");
+                  setPendingMapAnalysis(true);
+                }}
+              />
+            )}
+            {sourceView === "editor" && mapError && (
+              <p className="map-message" role="alert">
+                {mapError}
+              </p>
+            )}
             <div
               className="canvas-card"
+              hidden={sourceView === "map"}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -442,6 +579,7 @@ export default function App() {
                       onFinish={finish}
                       onRoofChange={(p) => {
                         invalidate();
+                        setMapEdited(true);
                         setRoof(p);
                       }}
                       measurement={measurement}
@@ -588,7 +726,16 @@ export default function App() {
               </div>
               <div className="settings-grid">
                 <div>
-                  <h4>01 / Set the scale</h4>
+                  <h4>
+                    01 / Set the scale
+                    <Help title="Scale">
+                      SolarFit needs to know how many real metres one pixel of
+                      the photo covers, or it cannot size panels. Roofs picked
+                      from the satellite map are already calibrated. For your
+                      own screenshot, use <b>Scale</b> to click both ends of
+                      something you know the length of, and type that length.
+                    </Help>
+                  </h4>
                   {measurement.length === 2 && (
                     <label>
                       Measured line length (m)
@@ -657,7 +804,15 @@ export default function App() {
                   </p>
                 </div>
                 <div>
-                  <h4>02 / Choose your module</h4>
+                  <h4>
+                    02 / Choose your module
+                    <Help title="Your solar module">
+                      The physical panel you would install. A common modern
+                      module is about 1.76 × 1.13 m and 400–470 watts. If you
+                      have a quote from an installer, copy its numbers here;
+                      otherwise the defaults are realistic.
+                    </Help>
+                  </h4>
                   <div className="presets">
                     {[400, 430, 450, 470].map((w) => (
                       <button
@@ -712,6 +867,11 @@ export default function App() {
                     </label>
                     <label>
                       Roof alignment (°)
+                      <Help title="Roof alignment">
+                        The direction the rows of panels run, so they line up
+                        with the ridge instead of sitting crooked. Roofs taken
+                        from the satellite map set this automatically.
+                      </Help>
                       <input
                         type="number"
                         min="-180"
@@ -728,10 +888,15 @@ export default function App() {
                 </div>
               </div>
               <details>
-                <summary>Safety margins, energy & detection</summary>
+                <summary>Safety margins, energy &amp; detection</summary>
                 <div className="advanced-grid">
                   <label>
                     Roof edge (m)
+                    <Help title="Roof edge gap">
+                      How far panels must stay back from the edge of the roof,
+                      for wind loading and safe access. Under half a metre is
+                      unusual on a pitched roof.
+                    </Help>
                     <input
                       type="number"
                       min="0"
@@ -743,6 +908,10 @@ export default function App() {
                   </label>
                   <label>
                     Obstacle buffer (m)
+                    <Help title="Obstacle gap">
+                      Clear space left around chimneys, roof windows and vents —
+                      both to fit the panel and to avoid their shadow.
+                    </Help>
                     <input
                       type="number"
                       min="0"
@@ -756,6 +925,10 @@ export default function App() {
                   </label>
                   <label>
                     Existing PV buffer (m)
+                    <Help title="Gap to existing panels">
+                      Space kept between panels already on the roof and any new
+                      ones.
+                    </Help>
                     <input
                       type="number"
                       min="0"
@@ -767,6 +940,10 @@ export default function App() {
                   </label>
                   <label>
                     Module gap (m)
+                    <Help title="Gap between panels">
+                      The small gap between neighbouring panels in the grid,
+                      for mounting rails and heat expansion.
+                    </Help>
                     <input
                       type="number"
                       min="0"
@@ -780,6 +957,11 @@ export default function App() {
                   </label>
                   <label>
                     Annual yield (kWh/kWp)
+                    <Help title="Annual yield">
+                      How many kilowatt-hours each kWp produces per year where
+                      you live — around 900–1,100 on a good Swiss roof. Leave it
+                      empty and SolarFit will not guess an energy figure.
+                    </Help>
                     <input
                       type="number"
                       min="0"
@@ -805,7 +987,7 @@ export default function App() {
               </details>
               {objects.length > 0 && (
                 <div className="marked-list">
-                  <h4>Manual exclusions</h4>
+                  <h4>Manual & imported exclusions</h4>
                   {objects.map((o, i) => (
                     <div key={i}>
                       <span>
@@ -828,8 +1010,8 @@ export default function App() {
           </section>
           <AnalysisPanel
             result={result}
-            busy={busy}
-            ready={!!file && roof.length >= 3}
+            busy={busy || mapBusy}
+            ready={!!file && roof.length >= 3 && !mapBusy}
             mode={mode}
             setMode={setMode}
             error={error}

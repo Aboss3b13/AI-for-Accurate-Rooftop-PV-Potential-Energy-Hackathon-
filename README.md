@@ -1,34 +1,121 @@
 # SolarFit ☀️
 
-**How many more solar panels can physically fit on this roof?**
+### How many more solar panels actually fit on this roof?
 
-A local hackathon prototype for [AI for Accurate Rooftop PV Potential](https://www.energydatahackdays.ch/challenges/ai-for-accurate-rooftop-pv-potential), Energy Data Hackdays 2026.
+Not "roof area ÷ panel area". SolarFit lays out **real rectangular panels** on **your real roof**, around your chimneys, your skylights and the panels you already have — and tells you how many more you can genuinely fit.
 
-SolarFit combines aerial-image segmentation, roof geometry, configurable clearance assumptions and physical module packing to estimate **additional panels and kWp**. It searches actual rectangular layouts instead of dividing roof area by panel area.
+**Click a house on the map. Get an answer in seconds.**
 
-![Actual SolarFit segmentation and proposed panel layouts](docs/analysis-preview.png)
+![Real SolarFit segmentation and proposed panel layouts](docs/analysis-preview.png)
 
-This illustration is generated from the real API output, not a website screenshot. Reproduce it with `scripts/verify_examples.py` while the server runs.
+*Generated from real API output, not a mockup.*
 
-## Start on Windows
+---
 
-**Double-click `START_SOLARFIT.bat`.** It opens **http://127.0.0.1:8000** automatically. Keep its console open; Ctrl+C stops the server.
+## Why it's different
 
-Prerequisites for a fresh machine: **Python 3.11 or 3.12** (with the `py` launcher), **Node.js 22+**, and an up-to-date NVIDIA driver for GPU use. First launch installs a virtual environment, CUDA-enabled PyTorch and the frontend build; this downloads several GB and needs internet. Subsequent launches use local files and work offline. CPU inference is supported when CUDA is unavailable. The setup uses PyTorch 2.10 / CUDA 12.8 and does not require a separate CUDA toolkit.
+| Most estimators | SolarFit |
+|---|---|
+| Divide roof area by panel area | Searches actual panel layouts, portrait **and** landscape, 16 grid offsets each |
+| Guess the scale from a screenshot | Uses Switzerland's official map projection — **every metre is a real metre** |
+| Treat a roof as one clean rectangle | Merges all of a building's roof planes, then cuts out obstacles, edges and existing PV |
+| Send your images to a cloud API | **Runs entirely on your computer.** Nothing is uploaded or stored |
+| Quote a confident single number | Shows Conservative / Recommended / Maximum, and says plainly what it does not know |
 
-After updating source code, run `REBUILD_SOLARFIT.bat`. Dependencies and outputs are kept outside Git; source, lockfile, examples, scripts and the baseline model are tracked. Uploaded images are processed in memory, not sent to an external AI service or saved by the app. A small in-memory inference cache clears on restart.
+Built for the [AI for Accurate Rooftop PV Potential](https://www.energydatahackdays.ch/challenges/ai-for-accurate-rooftop-pv-potential) challenge, Energy Data Hackdays 2026.
 
-## Try your satellite screenshot
+---
 
-1. Upload PNG, JPG, JPEG or WebP (20 MB / 25 MP maximum). Crop closely to **one roof plane**, using a top-down image with clear details.
-2. Choose **Roof**, click around its boundary, then click **Finish** or the first point. Enter also closes a polygon; Escape cancels. Use **Edit** to drag its vertices.
-3. Choose **Scale**, click two endpoints of a known distance, and enter metres. Alternatively enter pixels/metre or approximate roof width. Approximate scale is clearly flagged.
-4. Mark visible obstacles and missed existing PV. Manual exclusions are editable by removing and redrawing them. The baseline detector covers **PV only**, so obstacle marking is required for a meaningful result.
-5. Click **Analyse roof**. Toggle the roof, existing PV, obstacle, safety, usable-area and proposed-module layers. **View original** hides the analysis overlay.
-6. Compare Conservative / Recommended / Maximum. Panel dimensions, wattage, alignment and margins automatically trigger a recalculation after the first run; AI detections are cached.
-7. Export geometry, detections, capacity, warnings and statistics as JSON.
+## Start it
 
-Three bundled real Swiss aerial crops include prepared roof outlines; the obstacle example has explicitly manual obstacle marks. They are interaction examples, not capacity-validation ground truth. [Imagery attribution](frontend/public/examples/ATTRIBUTION.md).
+**Double-click `START_SOLARFIT.bat`.** Your browser opens at **http://127.0.0.1:8000**. Keep the console window open; Ctrl+C stops it.
+
+First run only: it downloads Python packages and CUDA support (several GB, needs internet, takes a while). After that it works offline. You need **Python 3.11 or 3.12**, **Node.js 22+**, and — optionally — an NVIDIA GPU. No GPU is fine; it falls back to the CPU.
+
+Changed the source code? Run `REBUILD_SOLARFIT.bat`.
+
+---
+
+## How to use it
+
+### The fast way — click a roof
+
+1. Search a Swiss address, or drag the map to the building.
+2. Zoom in until you can see individual roofs.
+3. **Click the roof.** That's it.
+
+SolarFit pulls Switzerland's official roof map, merges **every roof plane of that building** into one outline, downloads that patch of aerial photo at a known scale, finds existing solar panels, and calculates the layout — automatically.
+
+Clicked building has several faces? They're outlined on the map. Click one to analyse just that face; click it again to go back to the whole roof.
+
+### The flexible way — draw it yourself
+
+Press **Draw it myself**, then click each corner of the roof on the photo. **Undo point** removes the last corner, **Clear drawing** wipes it, and **Use this outline** runs the analysis.
+
+Use this when the building isn't in the official map, when you only want part of a roof, or when you simply disagree with the automatic outline.
+
+### Either way, you can then
+
+- Drag the outline's corners to correct it.
+- Mark chimneys, skylights and vents the AI missed (**Obstacle**), or panels it missed (**Existing PV**).
+- Switch between **Conservative**, **Recommended** and **Maximum** packing.
+- Enter your own panel size and wattage from an installer's quote.
+- Export everything as JSON.
+
+> **Every setting in the app has a "?" next to it.** Click it for a plain-language explanation of what it means and what a normal value looks like.
+
+### Your own image instead
+
+Prefer a screenshot? **Upload roof**, draw the outline, then use **Scale** to click both ends of something whose length you know and type that length — otherwise the app has no idea how big anything is, and it will say so.
+
+---
+
+## What the numbers mean
+
+| Number | In plain words |
+|---|---|
+| **Additional solar panels** | How many *more* panels fit, on top of any already there |
+| **kWp** | Power at full sunshine — the figure installers quote. A Swiss house is typically 5–15 kWp |
+| **Roof area** | The roof seen from above, in m². A pitched roof is a little larger in reality |
+| **Usable area** | What's left after removing obstacles, existing panels and safety gaps |
+| **Roof covered by new panels** | Share of the roof the new panels physically cover. Real roofs rarely pass ~80% |
+| **Selected orientation** | Whether portrait or landscape fitted more panels |
+| **Detection confidence** | How sure the AI is about what it *saw* — not whether the roof suits solar |
+
+---
+
+## Read this before trusting a number
+
+SolarFit is an **honest estimate, not an installation plan.**
+
+- **It cannot see chimneys.** The shipped model was trained on Swiss data that labels solar panels only, so it detects **existing PV and nothing else**. Chimneys, skylights and vents must be marked by hand, or the result will be optimistic. The app tells you this too.
+- **It is a flat, top-down calculation.** Roof pitch, shadows, snow, wind load, structural capacity, fire access, cabling and local setback rules are **not** modelled.
+- **Safety margins are assumptions**, not your municipality's rules.
+- **Aerial photos age.** The roof map and the photo may be from different years.
+
+Have an installer confirm anything you plan to build.
+
+---
+
+## Checking it still works
+
+`scripts/sanity_check.py` runs the whole pipeline — automatic *and* hand-drawn — against real houses sampled live from the Sonnendach roof layer in eight Swiss towns, and fails if any result is impossible:
+
+```powershell
+.venv/Scripts/python.exe scripts/sanity_check.py
+```
+
+```text
+place             mode       planes  roof m2   usable  panels     kWp   use%
+Winterthur        automatic       2    354.0    329.6     143   64.35   80.7
+Bern Laenggasse   automatic      35    728.4    541.4     195   87.75   53.5
+Lausanne          automatic       2    327.8    299.6     114   51.30   69.5
+Brugg             automatic       1    236.4    209.5      84   37.80   71.0
+```
+
+Unit tests: `.venv/Scripts/python.exe -m pytest -q`
+
+---
 
 ## What is implemented
 

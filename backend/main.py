@@ -14,10 +14,12 @@ from backend.services.panel_optimizer import optimise_panels
 from backend.services.yolo_service import yolo
 from backend.services.energy_service import capacity
 from backend.services.confidence_service import summarise_confidence
+from backend.map_routes import router as map_router
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 app = FastAPI(title="SolarFit", version="1.0.0")
+app.include_router(map_router)
 Image.MAX_IMAGE_PIXELS = 25_000_000
 
 
@@ -52,7 +54,7 @@ def analyse(image, settings):
         if polygon_from_points(x["polygon"]).intersection(roof).area > 1
     ]
     objects += [
-        dict(polygon=o.polygon, kind=o.kind, confidence=None, source="manual")
+        dict(polygon=o.polygon, kind=o.kind, confidence=None, source=o.source)
         for o in settings.objects
     ]
     usable, excluded = build_usable(roof, objects, ppm, settings)

@@ -13,6 +13,7 @@ class PanelConfig(BaseModel):
 
 
 class MarkedObject(BaseModel):
+    source: Literal["manual", "map"] = "manual"
     polygon: list[Point] = Field(min_length=3, max_length=200)
     kind: Literal["existing_pv", "chimney", "skylight", "other_obstacle"] = (
         "other_obstacle"

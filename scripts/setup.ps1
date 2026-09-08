@@ -15,14 +15,16 @@ if (-not (Test-Path '.venv/solarfit-ready')) {
     Check-Exit
     & $python -m pip install torch==2.10.0 torchvision==0.25.0 --index-url https://download.pytorch.org/whl/cu128
     Check-Exit
-    & $python -m pip install -r requirements.txt
-    Check-Exit
     New-Item '.venv/solarfit-ready' -ItemType File -Force | Out-Null
 }
+& $python -m pip install -r requirements.txt
+Check-Exit
 Push-Location frontend
 try {
-    if (-not (Test-Path 'node_modules')) { & npm.cmd ci; Check-Exit }
+    & npm.cmd ci
+    Check-Exit
     & npm.cmd run build
     Check-Exit
 } finally { Pop-Location }
+New-Item '.venv/solarfit-map-ready' -ItemType File -Force | Out-Null
 Write-Host 'SolarFit setup complete.' -ForegroundColor Green
