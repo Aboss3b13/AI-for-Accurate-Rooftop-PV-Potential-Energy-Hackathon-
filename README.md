@@ -2,7 +2,7 @@
 
 ### How many more solar panels actually fit on this roof?
 
-Not "roof area ÷ panel area". SolarFit lays out **real rectangular panels** on **your real roof**, around your chimneys, your skylights and the panels you already have — and tells you how many more you can genuinely fit.
+Not "roof area ÷ panel area". SolarFit lays out **real rectangular panels** on **your real roof**, around your chimneys, your skylights and the panels you already have — and tells you how many more you can genuinely fit. 
 
 **Click a house on the map. Get an answer in seconds.**
 
