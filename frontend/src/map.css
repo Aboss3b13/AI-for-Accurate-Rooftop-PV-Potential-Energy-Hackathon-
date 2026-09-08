@@ -410,13 +410,8 @@
   color: #fff;
 }
 .help-bubble {
-  position: absolute;
-  z-index: 1200;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: max(240px, 22vw);
-  max-width: 320px;
+  position: fixed;
+  z-index: 4000;
   display: block;
   background: #12291d;
   color: #eaf3e4;
@@ -441,14 +436,6 @@
   font-weight: 600;
 }
 @media (max-width: 640px) {
-  .help-bubble {
-    position: fixed;
-    left: 12px;
-    right: 12px;
-    width: auto;
-    max-width: none;
-    transform: none;
-  }
   .map-mode-switch {
     flex-wrap: wrap;
   }
