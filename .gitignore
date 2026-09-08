@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+frontend/dist/
+data/
+runs/
+*.log
+.env
+*.pt
+*.pth
+!models/rooftop_best.pt
+*.zip
+!frontend/package-lock.json
+*.tsbuildinfo

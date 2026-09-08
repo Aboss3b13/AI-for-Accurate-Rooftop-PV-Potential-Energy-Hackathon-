@@ -1,0 +1,11 @@
+# Example for a fully annotated custom rooftop instance-segmentation dataset.
+# The Swiss mask converter emits its own single-class YAML. Do not label unannotated obstacles as negatives in a four-class model.
+path: ../data/custom
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: existing_pv
+  1: chimney
+  2: skylight
+  3: other_obstacle

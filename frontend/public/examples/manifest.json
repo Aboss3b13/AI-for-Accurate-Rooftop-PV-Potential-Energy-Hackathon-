@@ -1,0 +1,119 @@
+[
+  {
+    "name": "Open roof plane",
+    "image": "/examples/case-1.jpg",
+    "roof": [
+      [
+        49,
+        46
+      ],
+      [
+        350,
+        46
+      ],
+      [
+        394,
+        109
+      ],
+      [
+        40,
+        107
+      ]
+    ],
+    "objects": [],
+    "pixels_per_metre": 10,
+    "source": "swissimage-dop10_2021_2575.0-1206.0.jpg",
+    "note": "SWISSIMAGE aerial crop \u00b7 10 cm/pixel. Roof outline is manually prepared; obstacle marks, when present, are manual. PV detections come from the installed model. 2D roof-plane estimate."
+  },
+  {
+    "name": "Existing solar",
+    "image": "/examples/case-2.jpg",
+    "roof": [
+      [
+        32,
+        46
+      ],
+      [
+        172,
+        156
+      ],
+      [
+        45,
+        169
+      ]
+    ],
+    "objects": [],
+    "pixels_per_metre": 10,
+    "source": "swissimage-dop10_2021_2708.0-1095.4.jpg",
+    "note": "SWISSIMAGE aerial crop \u00b7 10 cm/pixel. Roof outline is manually prepared; obstacle marks, when present, are manual. PV detections come from the installed model. 2D roof-plane estimate."
+  },
+  {
+    "name": "Rooftop obstacles",
+    "image": "/examples/case-3.jpg",
+    "roof": [
+      [
+        30,
+        36
+      ],
+      [
+        169,
+        34
+      ],
+      [
+        168,
+        85
+      ],
+      [
+        78,
+        85
+      ]
+    ],
+    "objects": [
+      {
+        "kind": "chimney",
+        "polygon": [
+          [
+            99,
+            68
+          ],
+          [
+            108,
+            68
+          ],
+          [
+            108,
+            80
+          ],
+          [
+            99,
+            80
+          ]
+        ]
+      },
+      {
+        "kind": "skylight",
+        "polygon": [
+          [
+            130,
+            67
+          ],
+          [
+            143,
+            67
+          ],
+          [
+            143,
+            81
+          ],
+          [
+            130,
+            81
+          ]
+        ]
+      }
+    ],
+    "pixels_per_metre": 10,
+    "source": "swissimage-dop10_2021_2575.0-1206.0.jpg",
+    "note": "SWISSIMAGE aerial crop \u00b7 10 cm/pixel. Roof outline is manually prepared; obstacle marks, when present, are manual. PV detections come from the installed model. 2D roof-plane estimate."
+  }
+]
