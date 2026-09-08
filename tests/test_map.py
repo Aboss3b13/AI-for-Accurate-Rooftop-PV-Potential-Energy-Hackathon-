@@ -110,7 +110,13 @@ def test_prepare_uses_authoritative_geometry_and_wms_grid(monkeypatch):
     assert result["selected_roof_id"] == "123:0"
     assert result["pixels_per_metre"] == 10
     assert Polygon(result["roof"]).area / 100 == pytest.approx(100)
-    assert len(calls) == 3
+    paths = [r.url.path for r in calls]
+    assert paths.count("/rest/services/ech/MapServer/identify") == 1
+    assert paths.count("/rest/services/ech/MapServer/find") == 1
+    assert paths.count("/") == 1  # the WMS image
+    # The height model is consulted for chimneys, and its absence is survivable.
+    assert any("swisssurface3d" in str(r.url) for r in calls)
+    assert any("could not be measured" in w for w in result["warnings"])
     assert result["provenance"]["pitch_deg"] == 20
 
 

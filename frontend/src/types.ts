@@ -1,7 +1,13 @@
 export type Point = [number, number];
 export type Mode = "conservative" | "recommended" | "maximum";
 export type Kind = "existing_pv" | "chimney" | "skylight" | "other_obstacle";
-export type MarkedObject = { polygon: Point[]; kind: Kind };
+export type MarkedObject = {
+  polygon: Point[];
+  kind: Kind;
+  source?: "manual" | "map" | "elevation";
+  /** Metres this superstructure rises above its roof face, when measured. */
+  height_m?: number | null;
+};
 export type Detection = MarkedObject & {
   confidence: number | null;
   source: string;

@@ -14,6 +14,7 @@ from shapely.geometry import Point, Polygon, mapping, shape
 from shapely.ops import transform, unary_union
 
 from backend.schemas.map import MapSelection
+from backend.services.elevation_service import ElevationUnavailable, roof_obstacles
 
 API = "https://api3.geo.admin.ch/rest/services/ech"
 ROOF_LAYER = "ch.bfe.solarenergie-eignung-daecher"
@@ -149,6 +150,7 @@ def merge_building(planes: list[dict], click: Point) -> dict | None:
         "contains_click": True,
         "distance": 0.0,
         "merged_planes": len(members),
+        "facets": geometries,
     }
 
 
@@ -351,6 +353,17 @@ async def prepare_capture(selection: MapSelection) -> dict:
             raise MapServiceError(
                 "The aerial-image service did not return an image. Try again shortly."
             )
+        detected = []
+        if geometry is not None:
+            # The height model sees chimneys and dormers the PV-only model cannot.
+            facets = selected.get("facets") or [geometry]
+            try:
+                detected = await roof_obstacles(client, facets, geometry.bounds)
+            except ElevationUnavailable as exc:
+                warnings.append(
+                    f"Roof superstructures could not be measured ({exc}). "
+                    "Mark chimneys and roof windows by hand."
+                )
         image = Image.open(io.BytesIO(response.content)).convert("RGB")
         if image.size != (grid["width"], grid["height"]):
             raise MapServiceError(
@@ -376,6 +389,27 @@ async def prepare_capture(selection: MapSelection) -> dict:
                     "source": "map",
                 }
             )
+    for obstacle in detected if geometry is not None else []:
+        clipped = obstacle["geometry"].intersection(geometry)
+        if clipped.geom_type != "Polygon" or clipped.area < MIN_HOLE_AREA_M2:
+            continue
+        polygon = pixel_ring(clipped.exterior.coords, grid)
+        if len(polygon) < 3 or not Polygon(polygon).is_valid:
+            continue
+        objects.append(
+            {
+                "polygon": polygon,
+                "kind": obstacle["kind"],
+                "source": "elevation",
+                "height_m": obstacle["height_m"],
+            }
+        )
+    raised = [o for o in objects if o["source"] == "elevation"]
+    if raised:
+        warnings.append(
+            f"Measured {len(raised)} roof superstructures from the swisstopo height model. "
+            "Roof windows set flush into the pitch do not show up; mark those by hand."
+        )
     return {
         "image_base64": base64.b64encode(encoded.getvalue()).decode(),
         "mime_type": "image/jpeg",

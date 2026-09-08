@@ -13,11 +13,13 @@ class PanelConfig(BaseModel):
 
 
 class MarkedObject(BaseModel):
-    source: Literal["manual", "map"] = "manual"
+    source: Literal["manual", "map", "elevation"] = "manual"
     polygon: list[Point] = Field(min_length=3, max_length=200)
     kind: Literal["existing_pv", "chimney", "skylight", "other_obstacle"] = (
         "other_obstacle"
     )
+    # Metres the superstructure rises above its roof face, when measured.
+    height_m: float | None = Field(None, ge=0, le=50)
 
 
 class AnalysisSettings(BaseModel):

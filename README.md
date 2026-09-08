@@ -19,6 +19,7 @@ Not "roof area ÷ panel area". SolarFit lays out **real rectangular panels** on 
 | Divide roof area by panel area | Searches actual panel layouts, portrait **and** landscape, 16 grid offsets each |
 | Guess the scale from a screenshot | Uses Switzerland's official map projection — **every metre is a real metre** |
 | Treat a roof as one clean rectangle | Merges all of a building's roof planes, then cuts out obstacles, edges and existing PV |
+| Ignore what is standing on the roof | **Measures chimneys and dormers** from Switzerland's 0.5 m height model and keeps panels clear of them |
 | Send your images to a cloud API | **Runs entirely on your computer.** Nothing is uploaded or stored |
 | Quote a confident single number | Shows Conservative / Recommended / Maximum, and says plainly what it does not know |
 
@@ -122,11 +123,53 @@ Prefer a screenshot? **Upload roof**, draw the outline, then use **Scale** to cl
 
 ---
 
+## How it finds chimneys
+
+There is no chimney detector to train — the Swiss training masks label solar panels and nothing else. So SolarFit measures instead of guessing.
+
+swisstopo publishes **swissSURFACE3D**, a national height model of the visible surface at one point every 50 cm. SolarFit downloads the tile under your roof, and for **each roof face separately** fits a plane through the height readings. Anything rising more than 45 cm above its own face is a structure standing on the roof.
+
+Fitting per face is what makes it work on a pitched roof: a gable is metres higher at the ridge than the eaves, so a single height threshold would flag half the building. Measured against its own slope, a 30° pitch is flat — and the chimney on it still sticks out.
+
+```mermaid
+flowchart LR
+    A[Sonnendach roof faces] --> B[swissSURFACE3D 0.5 m heights]
+    B --> C[Fit a plane per face]
+    C --> D[Height above that face]
+    D --> E{More than 45 cm?}
+    E -->|yes| F[Chimney / dormer polygon]
+    E -->|no| G[Clear roof]
+    F --> H[Excluded, with a safety margin]
+```
+
+Structures under 2.5 m² are labelled chimneys, larger ones dormers. Ridge cells are excluded from the test, since a cell straddling two faces stands proud of both and would otherwise weld every chimney into one blob. Tiles are cached in `.cache/dsm`, so a second roof in the same square kilometre needs no download.
+
+Measured across eight Swiss towns, this removes **2–14% of roof area** and cuts the panel count by 10–35% against the same roofs with obstacles ignored. Check it yourself:
+
+```powershell
+.venv/Scripts/python.exe scripts/check_obstacles.py
+```
+
+```text
+place         roof m2  found  chim  blocked m2      %  tallest
+Zurich          430.1      6     3        30.5    7.1  3.6 m
+Winterthur      354.0      2     0        26.2    7.4  2.0 m
+Bern            728.4      6     2       100.0   13.7  5.9 m
+Brugg           236.4      2     1         5.5    2.3  2.5 m
+```
+
+If the height model cannot be reached, the app says so and carries on without it.
+
+---
+
 ## Read this before trusting a number
 
 SolarFit is an **honest estimate, not an installation plan.**
 
-- **It cannot see chimneys.** The shipped model was trained on Swiss data that labels solar panels only, so it detects **existing PV and nothing else**. Chimneys, skylights and vents must be marked by hand, or the result will be optimistic. The app tells you this too.
+- **Flush features are invisible.** Chimneys and dormers are measured from the height model, but a roof window set level into the pitch does not stand proud of the roof, so nothing detects it. Mark those by hand.
+- **The AI itself only knows solar panels.** The shipped model was trained on Swiss data labelling PV only. Obstacles come from the height model and from you, not from the image model.
+- **Trees count as obstacles.** The height model records the surface, vegetation included, so a branch overhanging the roof is excluded like any other obstruction. That is usually what you want; it is not always what you expect.
+- **The height model has its own date.** It, the roof map and the aerial photo are three separate surveys and may disagree about a recent building.
 - **It is a flat, top-down calculation.** Roof pitch, shadows, snow, wind load, structural capacity, fire access, cabling and local setback rules are **not** modelled.
 - **Safety margins are assumptions**, not your municipality's rules.
 - **Aerial photos age.** The roof map and the photo may be from different years.
@@ -184,7 +227,7 @@ YOLO11-seg provides compact GPU-friendly instance segmentation. Masks follow ins
 
 ## Model and accuracy
 
-See [model card](models/MODEL_CARD.md) and [evaluation](models/evaluation.json) for the shipped baseline’s actual training and measured mask performance. It is a hackathon baseline, not a validated installation-planning system. **The Swiss source masks label PV installations only; they cannot teach a chimney/skylight detector.** The UI and backend disclose that missing coverage. Use manual exclusions until you train a fully annotated obstacle model.
+See [model card](models/MODEL_CARD.md) and [evaluation](models/evaluation.json) for the shipped baseline’s actual training and measured mask performance. It is a hackathon baseline, not a validated installation-planning system. **The Swiss source masks label PV installations only; they cannot teach a chimney/skylight detector.** Rather than train on data that does not exist, obstacles are measured from the swissSURFACE3D height model — see [How it finds chimneys](#how-it-finds-chimneys). Flush features still need manual exclusion, and the UI says so.
 
 If the checkpoint is absent or fails, the app keeps the geometric workflow available and reports AI as unavailable. It never treats generic COCO weights or sample annotations as rooftop AI predictions. Detected PV counts are **regions**, not individual modules.
 
@@ -230,10 +273,12 @@ npm run build
 frontend/src/           Dashboard, typed responses, SVG editing
 backend/main.py        Upload API and production frontend serving
 backend/schemas/       Validated inputs
-backend/services/      YOLO, SAM, geometry, packing, confidence, energy
+backend/services/      YOLO, SAM, geometry, packing, confidence, energy,
+                       Swiss map lookup and height-model obstacle detection
 models/                Baseline checkpoint, model card, evaluation
 training/              Data conversion, training and evaluation
-scripts/               Windows setup, launcher, example bundling
+scripts/               Windows setup, launcher, example bundling,
+                       sanity_check.py and check_obstacles.py
 tests/                 Geometry, packing and API regression tests
 START_SOLARFIT.bat      One-click local start
 TRAIN_MODEL.bat        Separate optional training run

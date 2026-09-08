@@ -1,4 +1,5 @@
 import { MapPin, Check, RotateCcw } from "lucide-react";
+import Help from "./Help";
 import type { MapCapture, MapPick } from "../mapTypes";
 
 export default function MapContext({
@@ -15,6 +16,7 @@ export default function MapContext({
   onReset: () => void;
 }) {
   const p = capture.provenance;
+  const measured = capture.objects.filter((o) => o.source === "elevation");
   return (
     <section className="map-context">
       <div className="map-context-title">
@@ -33,6 +35,23 @@ export default function MapContext({
         </span>
         <span>{p.crs} · metric capture</span>
         {p.pitch_deg != null && <span>Source roof pitch: {p.pitch_deg}°</span>}
+        {!!measured.length && (
+          <span>
+            {measured.length} roof structures measured
+            <Help title="Measured roof structures">
+              Chimneys, dormers and vents found in swisstopo's national height
+              model, which measures the roof surface every 50 cm. Anything
+              standing more than 45 cm proud of a roof face is treated as an
+              obstacle and kept clear.
+              <br />
+              <br />
+              It cannot see flush features — a roof window set into the pitch
+              is level with it — so mark those yourself. Trees hanging over the
+              roof are in the height model too, and will be excluded like any
+              other obstruction.
+            </Help>
+          </span>
+        )}
       </div>
       {capture.candidates.length > 1 && (
         <label className="roof-plane-select">

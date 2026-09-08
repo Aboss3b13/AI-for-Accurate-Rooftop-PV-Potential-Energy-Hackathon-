@@ -1,0 +1,86 @@
+"""Superstructure detection against a synthetic roof with a known chimney."""
+
+import numpy as np
+import pytest
+from shapely.geometry import box
+
+from backend.services import elevation_service as es
+
+MINX, MAXY = 2600000.0, 1200020.0
+
+
+def roof(pitch_per_cell=0.0, size=40):
+    """A roof face as a height grid, optionally sloping across the frame."""
+    rows, cols = np.mgrid[0:size, 0:size]
+    return (500.0 + pitch_per_cell * cols).astype(np.float32) + 0 * rows
+
+
+def facet(size=40):
+    return box(MINX, MAXY - size * es.DSM_STEP_M, MINX + size * es.DSM_STEP_M, MAXY)
+
+
+def test_finds_a_chimney_on_a_flat_roof():
+    heights = roof()
+    heights[18:22, 18:22] += 2.0  # a 2 m x 2 m chimney rising 2 m
+    found = es.detect(heights, MINX, MAXY, [facet()])
+    assert len(found) == 1
+    assert found[0]["height_m"] == pytest.approx(2.0, abs=0.05)
+    assert found[0]["area_m2"] == pytest.approx(4.0, abs=1.5)
+
+
+def test_a_slanted_roof_is_not_itself_an_obstacle():
+    # 0.15 m of rise per 0.5 m cell is a ~17 degree pitch: far above the
+    # detection threshold, so a naive height cut would flag the whole face.
+    heights = roof(pitch_per_cell=0.15)
+    assert heights.max() - heights.min() > 5
+    assert es.detect(heights, MINX, MAXY, [facet()]) == []
+
+
+def test_finds_a_chimney_on_a_slanted_roof():
+    heights = roof(pitch_per_cell=0.15)
+    heights[18:22, 18:22] += 2.0
+    found = es.detect(heights, MINX, MAXY, [facet()])
+    assert len(found) == 1
+    assert found[0]["height_m"] == pytest.approx(2.0, abs=0.1)
+
+
+def test_classifies_by_footprint():
+    heights = roof()
+    heights[10:12, 10:12] += 2.5  # 1 m x 1 m chimney
+    heights[24:32, 20:28] += 1.2  # 4 m x 4 m dormer-sized block
+    kinds = {o["kind"] for o in es.detect(heights, MINX, MAXY, [facet()])}
+    assert kinds == {"chimney", "other_obstacle"}
+
+
+def test_ignores_speckle_and_shallow_texture():
+    rng = np.random.default_rng(7)
+    heights = roof() + rng.normal(0, 0.05, (40, 40)).astype(np.float32)
+    heights[5, 5] += 3.0  # a single stray cell is not a structure
+    assert es.detect(heights, MINX, MAXY, [facet()]) == []
+
+
+def test_a_gap_in_the_height_model_is_survivable():
+    heights = roof()
+    heights[:, :] = np.nan
+    assert es.detect(heights, MINX, MAXY, [facet()]) == []
+
+
+def test_tile_origin_reads_the_swisstopo_kilometre_name():
+    from pathlib import Path
+
+    path = Path("swisssurface3d-raster_2018_2683-1247_0.5_2056_5728.tif")
+    assert es.tile_origin(path) == (2683000.0, 1247000.0)
+
+
+def test_cache_prunes_to_its_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr(es, "CACHE", tmp_path)
+    monkeypatch.setattr(es, "CACHE_LIMIT_BYTES", 3000)
+    for index in range(5):
+        tile = tmp_path / f"tile{index}.tif"
+        tile.write_bytes(b"x" * 1000)
+        import os, time
+
+        os.utime(tile, (time.time() + index, time.time() + index))
+    es.prune_cache()
+    left = sorted(p.name for p in tmp_path.glob("*.tif"))
+    assert left == ["tile2.tif", "tile3.tif", "tile4.tif"]
