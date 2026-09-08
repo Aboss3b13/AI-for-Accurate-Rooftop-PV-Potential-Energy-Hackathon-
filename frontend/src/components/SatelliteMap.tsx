@@ -49,7 +49,6 @@ export default function SatelliteMap({
   const [searchError, setSearchError] = useState(""),
     [mapError, setMapError] = useState(""),
     [zoom, setZoom] = useState(18);
-  const [lastClick, setLastClick] = useState<L.LatLng | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [outline, setOutline] = useState<L.LatLng[]>([]);
   const searchRequest = useRef<AbortController | null>(null);
@@ -106,7 +105,6 @@ export default function SatelliteMap({
         m.setView(e.latlng, 19);
         return;
       }
-      setLastClick(e.latlng);
       void callback.current({
         latitude: e.latlng.lat,
         longitude: e.latlng.lng,
@@ -249,16 +247,11 @@ export default function SatelliteMap({
   function clearOutline() {
     setOutline([]);
   }
-  function pickCenter(manual = false) {
+  function pickCentre() {
     const m = map.current;
     if (!m) return;
-    const point = manual && lastClick ? lastClick : m.getCenter();
-    setLastClick(point);
-    void onPick({
-      latitude: point.lat,
-      longitude: point.lng,
-      capture_only: manual,
-    });
+    const point = m.getCenter();
+    void onPick({ latitude: point.lat, longitude: point.lng });
   }
   return (
     <section className="satellite-card" hidden={!visible}>
@@ -397,26 +390,13 @@ export default function SatelliteMap({
         <div className="map-actions">
           <button
             className="primary"
-            onClick={() => pickCenter()}
+            onClick={pickCentre}
             disabled={busy || zoom < 18}
           >
             <Crosshair size={16} />
             Analyse roof at centre
           </button>
-          <button
-            className="text-button"
-            disabled={busy || zoom < 18}
-            onClick={() => pickCenter(true)}
-          >
-            Capture area & draw on the photo
-          </button>
-          {!!outline.length && (
-            <button className="text-button" onClick={clearOutline} disabled={busy}>
-              <Trash2 size={15} />
-              Clear drawing
-            </button>
-          )}
-          <span>Map scale updates as you zoom</span>
+          <span>Or press “Draw it myself” to trace the roof by hand</span>
         </div>
       )}
       <p className="map-disclosure">

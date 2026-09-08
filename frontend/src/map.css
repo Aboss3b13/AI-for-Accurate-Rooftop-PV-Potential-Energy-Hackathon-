@@ -471,3 +471,55 @@
 .advanced-grid .check-label > input {
   flex: 0 0 auto;
 }
+
+/* --- Design pass: one clear control row per decision --- */
+
+/* The source switch and the map mode switch read as one connected control. */
+.source-switch,
+.map-mode-switch {
+  gap: 4px;
+}
+.source-switch button,
+.map-mode-switch button {
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    color 0.14s ease;
+}
+.source-switch button:hover:not(.selected):not(:disabled),
+.map-mode-switch button:hover:not(.selected):not(:disabled) {
+  border-color: #b9c9ac;
+  color: #3f5238;
+}
+.map-mode-switch button.selected {
+  box-shadow: 0 2px 8px rgba(36, 79, 61, 0.18);
+}
+
+/* Actions sit on their own quiet band, separated from the map. */
+.map-actions {
+  border-top: 1px solid #eef2e8;
+  background: #fcfdfa;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.map-actions > span {
+  flex-basis: 100%;
+  margin-left: 0;
+  order: 9;
+  color: #97a68b;
+}
+@media (min-width: 861px) {
+  .map-actions > span {
+    flex-basis: auto;
+    margin-left: auto;
+  }
+}
+.map-actions .primary:disabled {
+  opacity: 0.45;
+}
+
+/* The live hint over the map is information, not decoration. */
+.map-instruction {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}

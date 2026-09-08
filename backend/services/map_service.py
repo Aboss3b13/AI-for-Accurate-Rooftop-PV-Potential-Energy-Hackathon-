@@ -265,7 +265,7 @@ async def prepare_capture(selection: MapSelection) -> dict:
             warnings.append(
                 "Using the outline you drew. Scale comes from the map, so area and capacity stay metric."
             )
-        elif not selection.capture_only:
+        else:
             data = await get_json(
                 client,
                 "/MapServer/identify",

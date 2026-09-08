@@ -440,15 +440,8 @@ export default function App() {
           SolarFit<span className="brand-tag">ROOFTOP INTELLIGENCE</span>
         </a>
         <div className="header-right">
-          <button
-            className="upload-button"
-            onClick={() => setSourceView("map")}
-          >
-            <MapIcon size={16} />
-            Satellite map
-          </button>
           <span className="local-status">
-            <i /> Local AI · Swiss maps online
+            <i /> Runs on your computer
           </span>
           <button
             className="upload-button"
@@ -473,18 +466,13 @@ export default function App() {
       <main>
         <section className="intro">
           <div>
-            <div className="eyebrow">ENERGY DATA HACKDAYS / SOLARFIT</div>
             <h1>
               Every roof has more potential<span>.</span>
             </h1>
-            <p>Find the space. Fit the panels. See what’s possible.</p>
-          </div>
-          <div className="pipeline">
-            <span>01 Image</span>
-            <span>02 Geometry</span>
-            <span className="active">
-              03 Potential <ArrowUpRight size={15} />
-            </span>
+            <p>
+              Click a building on the Swiss map. SolarFit measures the roof,
+              finds what is in the way, and fits the panels.
+            </p>
           </div>
         </section>
         <div className="workspace">

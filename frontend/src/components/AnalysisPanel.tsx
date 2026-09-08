@@ -237,32 +237,6 @@ export default function AnalysisPanel({
           ))}
         </div>
       )}
-      {!result && (
-        <div className="workflow-card">
-          <span className="eyebrow">A BETTER ESTIMATE IN THREE STEPS</span>
-          <div>
-            <b>1</b>
-            <p>
-              Upload an aerial image
-              <span>Use a clear, top-down view of one roof.</span>
-            </p>
-          </div>
-          <div>
-            <b>2</b>
-            <p>
-              Trace & calibrate
-              <span>Mark the roof and one known distance.</span>
-            </p>
-          </div>
-          <div>
-            <b>3</b>
-            <p>
-              Find your fit
-              <span>Review obstacles and compare layouts.</span>
-            </p>
-          </div>
-        </div>
-      )}
       {Object.keys(comparisons).length > 1 && (
         <div className="comparison-card">
           <h3>Layouts explored</h3>

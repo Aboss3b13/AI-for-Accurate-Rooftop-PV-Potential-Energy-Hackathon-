@@ -166,7 +166,8 @@ If the height model cannot be reached, the app says so and carries on without it
 
 SolarFit is an **honest estimate, not an installation plan.**
 
-- **Flush features are invisible.** Chimneys and dormers are measured from the height model, but a roof window set level into the pitch does not stand proud of the roof, so nothing detects it. Mark those by hand.
+- **Flush features are invisible.** Chimneys, dormers and rooflight kerbs are measured from the height model, but a roof window set level into the pitch does not stand proud of the roof, so nothing detects it. Mark those by hand.
+- **It errs towards blocking.** Without labelled ground truth the detector is tuned to flag rather than miss, so it removes roof area a surveyor might keep. Expect a slightly low panel count, not a high one.
 - **The AI itself only knows solar panels.** The shipped model was trained on Swiss data labelling PV only. Obstacles come from the height model and from you, not from the image model.
 - **Trees count as obstacles.** The height model records the surface, vegetation included, so a branch overhanging the roof is excluded like any other obstruction. That is usually what you want; it is not always what you expect.
 - **The height model has its own date.** It, the roof map and the aerial photo are three separate surveys and may disagree about a recent building.

@@ -48,7 +48,6 @@ export type MapPick = {
   latitude: number;
   longitude: number;
   roof_id?: string;
-  capture_only?: boolean;
   span_m?: number;
   polygon?: { latitude: number; longitude: number }[];
 };

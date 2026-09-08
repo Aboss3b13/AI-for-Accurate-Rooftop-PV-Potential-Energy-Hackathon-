@@ -113,10 +113,8 @@ main {
   padding: 36px 4% 0;
 }
 .intro {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 29px;
+  max-width: 620px;
+  margin-bottom: 26px;
 }
 .eyebrow {
   font-size: 9px;
@@ -128,33 +126,19 @@ h1 {
   font-size: 36px;
   font-weight: 600;
   letter-spacing: -1.45px;
-  margin: 11px 0 9px;
+  margin: 0 0 11px;
   color: #173e30;
 }
 h1 span {
   color: #a4cc5f;
 }
 .intro p {
-  font-size: 13px;
+  font-size: 13.5px;
+  line-height: 1.65;
   color: #788278;
   margin: 0;
 }
-.pipeline {
-  display: flex;
-  gap: 18px;
-  font-size: 10px;
-  color: #a0aaa1;
-  align-items: center;
-}
-.pipeline .active {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  background: #e9efdf;
-  color: #466139;
-  padding: 10px 12px;
-  border-radius: 6px;
-}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
@@ -790,7 +774,6 @@ summary {
   height: 4px;
   margin-right: 5px;
 }
-.workflow-card,
 .notice-card,
 .comparison-card {
   border: 1px solid #e2e9d9;
@@ -799,41 +782,7 @@ summary {
   margin-top: 18px;
   background: #eef3e5;
 }
-.workflow-card .eyebrow {
-  font-size: 8px;
-  letter-spacing: 1px;
-  color: #869675;
-}
-.workflow-card > div {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  margin-top: 18px;
-}
-.workflow-card b {
-  border: 1px solid #d8e3c9;
-  background: #f6f9ef;
-  color: #8da56b;
-  min-width: 23px;
-  height: 23px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 9px;
-  font-weight: 500;
-}
-.workflow-card p {
-  font-size: 11px;
-  color: #627850;
-  margin: 1px 0 0;
-}
-.workflow-card p span {
-  display: block;
-  font-size: 9px;
-  color: #a0ae90;
-  margin-top: 6px;
-  line-height: 1.5;
-}
+
 .notice-card {
   background: #fbf7eb;
   border-color: #eee4c9;
@@ -927,7 +876,6 @@ footer {
     gap: 16px;
   }
   .brand-tag,
-  .pipeline,
   .local-status {
     display: none;
   }
@@ -1007,9 +955,7 @@ footer {
   .result-card .hero-stat > span:first-child {
     font-size: 76px;
   }
-  .workflow-card {
-    display: none;
-  }
+
   .settings-grid {
     gap: 25px;
   }

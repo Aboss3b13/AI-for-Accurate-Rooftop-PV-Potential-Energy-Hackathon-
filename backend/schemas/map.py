@@ -12,7 +12,6 @@ class MapSelection(BaseModel):
     roof_id: str | None = Field(
         default=None, max_length=80, pattern=r"^(?:\d+:\d+|building:\d+)$"
     )
-    capture_only: bool = False
     span_m: float = Field(default=64, ge=20, le=150)
     # An outline drawn on the map, used instead of the official roof lookup.
     polygon: list[MapPoint] | None = Field(default=None, min_length=3, max_length=200)
