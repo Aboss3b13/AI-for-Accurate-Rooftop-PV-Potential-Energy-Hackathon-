@@ -26,13 +26,51 @@ Built for the [AI for Accurate Rooftop PV Potential](https://www.energydatahackd
 
 ---
 
-## Start it
+## Set it up
 
-**Double-click `START_SOLARFIT.bat`.** Your browser opens at **http://127.0.0.1:8000**. Keep the console window open; Ctrl+C stops it.
+Three steps. You only do this once.
 
-First run only: it downloads Python packages and CUDA support (several GB, needs internet, takes a while). After that it works offline. You need **Python 3.11 or 3.12**, **Node.js 22+**, and — optionally — an NVIDIA GPU. No GPU is fine; it falls back to the CPU.
+### 1. Install the two things it needs
 
-Changed the source code? Run `REBUILD_SOLARFIT.bat`.
+| | Download | Notes |
+|---|---|---|
+| **Python 3.11 or 3.12** | [python.org/downloads](https://www.python.org/downloads/) | On the first install screen, **tick "Add python.exe to PATH"**. Not 3.13 — the launcher looks for 3.11 or 3.12 specifically |
+| **Node.js 22 or newer** | [nodejs.org](https://nodejs.org) | Take the "LTS" button and click Next through the installer |
+
+An NVIDIA graphics card makes the AI faster but is **not** required — without one it uses your CPU and still works.
+
+### 2. Get SolarFit onto your computer
+
+Green **Code** button at the top of this page → **Download ZIP** → right-click the file → **Extract All**.
+
+Or, if you have Git:
+
+```powershell
+git clone https://github.com/Aboss3b13/AI-for-Accurate-Rooftop-PV-Potential-Energy-Hackathon-
+```
+
+### 3. Double-click `START_SOLARFIT.bat`
+
+That's the whole setup. The first run installs everything by itself — a virtual environment, the AI libraries and the web interface. It downloads **several gigabytes** (PyTorch with CUDA is most of it), so it needs internet and can easily take half an hour on a normal connection. Leave it alone until it finishes.
+
+When it's ready your browser opens at **http://127.0.0.1:8000** and you can [start clicking roofs](#how-to-use-it).
+
+**Every run after that starts in seconds** — no downloads. The AI runs entirely on your machine; only the aerial map needs internet.
+
+> Keep the black console window open while you use SolarFit — that window *is* the app. Press Ctrl+C in it, or just close it, to stop.
+
+### If something goes wrong
+
+| It says | Do this |
+|---|---|
+| `Install Node.js 22 or newer` | Node isn't installed, or you didn't restart after installing. Close the window, install Node, open it again |
+| `Install Python 3.11 or 3.12 with the Python launcher` | Reinstall Python and **tick "Add python.exe to PATH"** |
+| Windows blocks the `.bat` file | Right-click it → **Properties** → tick **Unblock** → OK |
+| The setup stops partway | Check your internet and double-click `START_SOLARFIT.bat` again — it picks up where it left off |
+| The page loads but the map is blank | The map needs internet. The AI itself runs offline, but the aerial photos are downloaded live |
+| Nothing happens after you change the code | Run `REBUILD_SOLARFIT.bat` |
+
+The console window keeps the full error text on screen — it waits for a keypress instead of closing, so you can read it. On macOS or Linux there is no `.bat` launcher; follow [Development](#development) instead.
 
 ---
 
