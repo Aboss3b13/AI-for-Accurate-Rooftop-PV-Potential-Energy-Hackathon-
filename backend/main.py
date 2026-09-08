@@ -39,6 +39,7 @@ def analyse(image, settings):
     )
     if settings.use_ai:
         detected, warnings, model = yolo.detect(image)
+        warnings = list(warnings)
     else:
         detected, warnings, model = (
             [],

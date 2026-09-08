@@ -90,6 +90,20 @@ export default function App() {
     abort = useRef<AbortController | null>(null);
   const completed = useRef<Analysis | null>(null);
   useEffect(() => {
+    setComparisons({});
+  }, [
+    panel,
+    ppm,
+    roofWidth,
+    verified,
+    angle,
+    yieldValue,
+    ai,
+    edge,
+    obstacleMargin,
+    pvMargin,
+  ]);
+  useEffect(() => {
     completed.current = result;
   }, [result]);
   useEffect(() => registerAnalysisReader(() => completed.current), []);

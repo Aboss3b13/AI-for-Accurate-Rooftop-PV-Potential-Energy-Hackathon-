@@ -130,6 +130,18 @@ export default function AnalysisPanel({
             />
           </div>
           <p>Detection score, not a guarantee of roof suitability.</p>
+          {result && (
+            <p>
+              PV:{" "}
+              {result.confidence.existing_pv == null
+                ? "unavailable"
+                : `${Math.round(result.confidence.existing_pv * 100)}%`}
+              {" · "}Obstacles:{" "}
+              {result.confidence.obstacles == null
+                ? "unavailable"
+                : `${Math.round(result.confidence.obstacles * 100)}%`}
+            </p>
+          )}
         </div>
         {error && (
           <div className="error" role="alert">

@@ -38,8 +38,8 @@ def main():
         device=0 if torch.cuda.is_available() else "cpu",
         workers=0,
         plots=True,
-        project=str(Path('runs/segment').resolve()),
-        name='evaluation',
+        project=str(Path("runs/segment").resolve()),
+        name="evaluation",
     )
     report = {
         "split": args.split,

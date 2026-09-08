@@ -6,6 +6,10 @@ A local hackathon prototype for [AI for Accurate Rooftop PV Potential](https://w
 
 SolarFit combines aerial-image segmentation, roof geometry, configurable clearance assumptions and physical module packing to estimate **additional panels and kWp**. It searches actual rectangular layouts instead of dividing roof area by panel area.
 
+![Actual SolarFit segmentation and proposed panel layouts](docs/analysis-preview.png)
+
+This illustration is generated from the real API output, not a website screenshot. Reproduce it with `scripts/verify_examples.py` while the server runs.
+
 ## Start on Windows
 
 **Double-click `START_SOLARFIT.bat`.** It opens **http://127.0.0.1:8000** automatically. Keep its console open; Ctrl+C stops the server.

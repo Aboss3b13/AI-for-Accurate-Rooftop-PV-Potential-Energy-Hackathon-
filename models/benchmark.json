@@ -1,0 +1,220 @@
+[
+  {
+    "example": "Open roof plane",
+    "modes": {
+      "conservative": {
+        "statistics": {
+          "existing_pv_regions": 0,
+          "additional_panel_count": 68,
+          "additional_kwp": 30.6,
+          "annual_energy_kwh": null,
+          "roof_area_m2": 202.88,
+          "usable_area_m2": 168.07,
+          "roof_utilisation": 67.0,
+          "pixels_per_metre": 10.0,
+          "approximate": false,
+          "orientation": "landscape",
+          "elapsed_ms": 8265
+        },
+        "http_ms": 8296.2
+      },
+      "recommended": {
+        "statistics": {
+          "existing_pv_regions": 0,
+          "additional_panel_count": 79,
+          "additional_kwp": 35.55,
+          "annual_energy_kwh": null,
+          "roof_area_m2": 202.88,
+          "usable_area_m2": 179.47,
+          "roof_utilisation": 77.8,
+          "pixels_per_metre": 10.0,
+          "approximate": false,
+          "orientation": "portrait",
+          "elapsed_ms": 24
+        },
+        "http_ms": 31.5
+      },
+      "maximum": {
+        "statistics": {
+          "existing_pv_regions": 0,
+          "additional_panel_count": 86,
+          "additional_kwp": 38.7,
+          "annual_energy_kwh": null,
+          "roof_area_m2": 202.88,
+          "usable_area_m2": 191.07,
+          "roof_utilisation": 84.7,
+          "pixels_per_metre": 10.0,
+          "approximate": false,
+          "orientation": "landscape",
+          "elapsed_ms": 20
+        },
+        "http_ms": 26.1
+      }
+    },
+    "model": {
+      "available": true,
+      "model": "rooftop_best.pt",
+      "device": "0",
+      "classes": [
+        "existing_pv"
+      ]
+    },
+    "confidence": {
+      "existing_pv": null,
+      "obstacles": null,
+      "mean_detection": null,
+      "uncertain_objects": 0,
+      "note": "Model detection scores are not calibrated probabilities of layout correctness."
+    },
+    "warnings": [
+      "This model detects PV only or has incomplete obstacle coverage. Mark rooftop obstacles manually.",
+      "No objects detected by this model. This does not confirm the roof is clear.",
+      "2D planning estimate: roof pitch, shading, structure, access and electrical design require on-site assessment."
+    ]
+  },
+  {
+    "example": "Existing solar",
+    "modes": {
+      "conservative": {
+        "statistics": {
+          "existing_pv_regions": 1,
+          "additional_panel_count": 12,
+          "additional_kwp": 5.4,
+          "annual_energy_kwh": null,
+          "roof_area_m2": 78.95,
+          "usable_area_m2": 50.89,
+          "roof_utilisation": 30.4,
+          "pixels_per_metre": 10.0,
+          "approximate": false,
+          "orientation": "portrait",
+          "elapsed_ms": 1095
+        },
+        "http_ms": 1100.0
+      },
+      "recommended": {
+        "statistics": {
+          "existing_pv_regions": 1,
+          "additional_panel_count": 14,
+          "additional_kwp": 6.3,
+          "annual_energy_kwh": null,
+          "roof_area_m2": 78.95,
+          "usable_area_m2": 57.89,
+          "roof_utilisation": 35.4,
+          "pixels_per_metre": 10.0,
+          "approximate": false,
+          "orientation": "portrait",
+          "elapsed_ms": 13
+        },
+        "http_ms": 17.7
+      },
+      "maximum": {
+        "statistics": {
+          "existing_pv_regions": 1,
+          "additional_panel_count": 16,
+          "additional_kwp": 7.2,
+          "annual_energy_kwh": null,
+          "roof_area_m2": 78.95,
+          "usable_area_m2": 65.09,
+          "roof_utilisation": 40.5,
+          "pixels_per_metre": 10.0,
+          "approximate": false,
+          "orientation": "portrait",
+          "elapsed_ms": 15
+        },
+        "http_ms": 20.2
+      }
+    },
+    "model": {
+      "available": true,
+      "model": "rooftop_best.pt",
+      "device": "0",
+      "classes": [
+        "existing_pv"
+      ]
+    },
+    "confidence": {
+      "existing_pv": 0.698,
+      "obstacles": null,
+      "mean_detection": 0.698,
+      "uncertain_objects": 0,
+      "note": "Model detection scores are not calibrated probabilities of layout correctness."
+    },
+    "warnings": [
+      "This model detects PV only or has incomplete obstacle coverage. Mark rooftop obstacles manually.",
+      "2D planning estimate: roof pitch, shading, structure, access and electrical design require on-site assessment."
+    ]
+  },
+  {
+    "example": "Rooftop obstacles",
+    "modes": {
+      "conservative": {
+        "statistics": {
+          "existing_pv_regions": 0,
+          "additional_panel_count": 10,
+          "additional_kwp": 4.5,
+          "annual_energy_kwh": null,
+          "roof_area_m2": 57.48,
+          "usable_area_m2": 34.0,
+          "roof_utilisation": 34.8,
+          "pixels_per_metre": 10.0,
+          "approximate": false,
+          "orientation": "portrait",
+          "elapsed_ms": 1121
+        },
+        "http_ms": 1126.0
+      },
+      "recommended": {
+        "statistics": {
+          "existing_pv_regions": 0,
+          "additional_panel_count": 12,
+          "additional_kwp": 5.4,
+          "annual_energy_kwh": null,
+          "roof_area_m2": 57.48,
+          "usable_area_m2": 40.41,
+          "roof_utilisation": 41.7,
+          "pixels_per_metre": 10.0,
+          "approximate": false,
+          "orientation": "landscape",
+          "elapsed_ms": 10
+        },
+        "http_ms": 14.9
+      },
+      "maximum": {
+        "statistics": {
+          "existing_pv_regions": 0,
+          "additional_panel_count": 12,
+          "additional_kwp": 5.4,
+          "annual_energy_kwh": null,
+          "roof_area_m2": 57.48,
+          "usable_area_m2": 47.22,
+          "roof_utilisation": 41.7,
+          "pixels_per_metre": 10.0,
+          "approximate": false,
+          "orientation": "portrait",
+          "elapsed_ms": 10
+        },
+        "http_ms": 14.6
+      }
+    },
+    "model": {
+      "available": true,
+      "model": "rooftop_best.pt",
+      "device": "0",
+      "classes": [
+        "existing_pv"
+      ]
+    },
+    "confidence": {
+      "existing_pv": null,
+      "obstacles": null,
+      "mean_detection": null,
+      "uncertain_objects": 0,
+      "note": "Model detection scores are not calibrated probabilities of layout correctness."
+    },
+    "warnings": [
+      "This model detects PV only or has incomplete obstacle coverage. Mark rooftop obstacles manually.",
+      "No objects detected by this model. This does not confirm the roof is clear.",
+      "2D planning estimate: roof pitch, shading, structure, access and electrical design require on-site assessment."
+    ]
+  }
+]
