@@ -26,8 +26,13 @@ TO_WGS84 = Transformer.from_crs(2056, 4326, always_xy=True)
 CACHE = Path(__file__).resolve().parents[2] / ".cache" / "dsm"
 DSM_STEP_M = 0.5
 
-# A superstructure must clear the roof face by this much to count.
-MIN_HEIGHT_M = 0.45
+# A superstructure must clear the roof face by this much to count. Flat-roof
+# rooflight kerbs sit around 0.3 m, so the floor is set just under that.
+MIN_HEIGHT_M = 0.28
+# The plane is fitted to this share of the height spread: the roof deck.
+BASE_PERCENTILE = 50.0
+# ...and the cut-off rises with the roughness of that deck.
+NOISE_SIGMAS = 4.0
 # ...and be at least this large, so single noisy cells are ignored.
 MIN_AREA_M2 = 0.35
 MAX_AREA_FRACTION = 0.5
@@ -132,8 +137,14 @@ def mosaic(paths: list[Path], bounds) -> tuple[np.ndarray, float, float]:
     return out, minx, maxy
 
 
-def facet_mask(polygon: Polygon, shape, minx: float, maxy: float) -> np.ndarray:
+def facet_mask(polygon, shape, minx: float, maxy: float) -> np.ndarray:
     mask = np.zeros(shape, dtype=np.uint8)
+    if polygon.geom_type == "MultiPolygon":
+        for part in polygon.geoms:
+            mask |= facet_mask(part, shape, minx, maxy).astype(np.uint8)
+        return mask.astype(bool)
+    if polygon.geom_type != "Polygon" or polygon.is_empty:
+        return mask.astype(bool)
     rings = [polygon.exterior] + list(polygon.interiors)
     for index, ring in enumerate(rings):
         points = np.array(
@@ -148,7 +159,13 @@ def facet_mask(polygon: Polygon, shape, minx: float, maxy: float) -> np.ndarray:
 
 
 def plane_residual(heights: np.ndarray, mask: np.ndarray) -> np.ndarray | None:
-    """Fit the roof face to its own slope, then measure what stands above it."""
+    """Fit the roof face to its own slope, then measure what stands above it.
+
+    Superstructures only ever push the surface up, so the fit is anchored to the
+    lower part of the height spread. A symmetric fit is dragged upward by a big
+    rooftop plant room until nothing stands out from it any more - on one flat
+    industrial roof that left a 1.13 m spread and 40% of cells "raised".
+    """
     valid = mask & np.isfinite(heights)
     if int(valid.sum()) < 12:
         return None
@@ -159,18 +176,34 @@ def plane_residual(heights: np.ndarray, mask: np.ndarray) -> np.ndarray | None:
     )
     keep = np.ones(z.size, dtype=bool)
     residual = np.zeros(z.size)
-    for _ in range(2):
+    for _ in range(6):
         if int(keep.sum()) < 8:
             return None
         solution, *_ = np.linalg.lstsq(design[keep], z[keep], rcond=None)
         residual = z - design @ solution
-        # Refit without the superstructures so they cannot tilt the plane.
-        centred = residual[keep] - np.median(residual[keep])
-        spread = float(np.median(np.abs(centred)))
-        keep = np.abs(residual) <= max(0.25, 3 * 1.4826 * spread)
+        # Keep the lower part of the spread, so the plane settles on the roof
+        # deck rather than splitting the difference with whatever sits on it.
+        cut = float(np.percentile(residual, BASE_PERCENTILE))
+        keep = residual <= max(cut, 0.05)
     out = np.full(heights.shape, np.nan, dtype=np.float32)
     out[valid] = residual.astype(np.float32)
     return out
+
+
+def rise_threshold(residual: np.ndarray, mask: np.ndarray) -> float:
+    """How far above the fitted face a cell must sit before it counts.
+
+    Never below MIN_HEIGHT_M, and lifted on a rough or poorly fitted face so
+    that noise does not become a rooftop full of imaginary chimneys.
+    """
+    base = residual[mask & np.isfinite(residual)]
+    if base.size == 0:
+        return MIN_HEIGHT_M
+    deck = base[base <= np.percentile(base, BASE_PERCENTILE)]
+    if deck.size < 8:
+        return MIN_HEIGHT_M
+    spread = float(np.median(np.abs(deck - np.median(deck))))
+    return max(MIN_HEIGHT_M, NOISE_SIGMAS * 1.4826 * spread)
 
 
 def detect(
@@ -191,7 +224,8 @@ def detect(
         # would be flagged on either. Fit on the whole face, judge only its core,
         # or every ridge line reads as a structure and welds them into one blob.
         core = cv2.erode(mask.astype(np.uint8), kernel).astype(bool)
-        hit = core & np.isfinite(residual) & (residual > MIN_HEIGHT_M)
+        threshold = rise_threshold(residual, mask)
+        hit = core & np.isfinite(residual) & (residual > threshold)
         raised[hit] = 1
         depth[hit] = np.maximum(depth[hit], residual[hit])
     if not raised.any():

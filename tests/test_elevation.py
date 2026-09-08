@@ -84,3 +84,35 @@ def test_cache_prunes_to_its_budget(tmp_path, monkeypatch):
     es.prune_cache()
     left = sorted(p.name for p in tmp_path.glob("*.tif"))
     assert left == ["tile2.tif", "tile3.tif", "tile4.tif"]
+
+
+def test_plane_settles_on_the_deck_not_the_plant_room():
+    # A third of this flat roof carries a 3 m plant room. A symmetric fit is
+    # pulled up between deck and plant until neither stands out.
+    heights = roof()
+    heights[:, 26:] += 3.0
+    found = es.detect(heights, MINX, MAXY, [facet()])
+    assert len(found) == 1
+    assert found[0]["height_m"] == pytest.approx(3.0, abs=0.1)
+
+
+def test_finds_a_low_rooflight_kerb():
+    heights = roof()
+    heights[16:24, 16:24] += 0.32  # a flat-roof rooflight, 32 cm proud
+    found = es.detect(heights, MINX, MAXY, [facet()])
+    assert len(found) == 1
+
+
+def test_multipolygon_facet_is_handled():
+    from shapely.geometry import MultiPolygon
+
+    heights = roof()
+    heights[18:22, 4:8] += 2.0
+    pair = MultiPolygon(
+        [
+            box(MINX, MAXY - 20, MINX + 5, MAXY),
+            box(MINX + 6, MAXY - 20, MINX + 20, MAXY),
+        ]
+    )
+    assert es.facet_mask(pair, heights.shape, MINX, MAXY).any()
+    assert len(es.detect(heights, MINX, MAXY, [pair])) == 1
