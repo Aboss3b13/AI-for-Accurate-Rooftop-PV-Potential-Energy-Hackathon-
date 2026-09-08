@@ -11,6 +11,7 @@ the surface and are invisible here. They still need marking by hand.
 """
 
 import asyncio
+import math
 from pathlib import Path
 
 import cv2
@@ -39,6 +40,9 @@ MAX_AREA_FRACTION = 0.5
 MAX_OBSTACLES = 40
 # A chimney or vent is small and tall; anything broader reads as a dormer.
 CHIMNEY_MAX_AREA_M2 = 2.5
+# Nothing on a roof is thinner than this across; anything that is comes from
+# the roof outline running along a taller neighbour, not from a structure.
+MIN_THICKNESS_M = 0.7
 PAD_M = 2.0
 MAX_TILES = 4
 # Each tile is ~13 MB and covers a square kilometre; keep the cache bounded.
@@ -206,6 +210,23 @@ def rise_threshold(residual: np.ndarray, mask: np.ndarray) -> float:
     return max(MIN_HEIGHT_M, NOISE_SIGMAS * 1.4826 * spread)
 
 
+def thickness(polygon: Polygon) -> float:
+    """Width of the narrowest side of the tightest enclosing rectangle.
+
+    Uses shapely rather than cv2.minAreaRect: LV95 eastings are around 2.68
+    million, and float32 quantises that to 0.25 m, so a sliver measures wider
+    than it is and slips through.
+    """
+    rectangle = polygon.minimum_rotated_rectangle
+    if rectangle.geom_type != "Polygon":
+        return 0.0
+    coords = list(rectangle.exterior.coords)
+    sides = [
+        math.dist(coords[i], coords[i + 1]) for i in range(min(4, len(coords) - 1))
+    ]
+    return min(sides) if sides else 0.0
+
+
 def detect(
     heights: np.ndarray, minx: float, maxy: float, facets: list[Polygon]
 ) -> list[dict]:
@@ -239,7 +260,7 @@ def detect(
     for contour in contours:
         # Scale simplification to the structure: a fixed epsilon flattens a
         # 1 m chimney's four-cell contour into a line and loses it entirely.
-        epsilon = min(0.8, 0.05 * cv2.arcLength(contour, True))
+        epsilon = min(0.4, 0.02 * cv2.arcLength(contour, True))
         approx = cv2.approxPolyDP(contour, epsilon, True).reshape(-1, 2)
         if len(approx) < 3:
             x, y, w, h = cv2.boundingRect(contour)
@@ -264,6 +285,8 @@ def detect(
             continue
         area = polygon.area
         if area < MIN_AREA_M2 or area > roof_area * MAX_AREA_FRACTION:
+            continue
+        if thickness(polygon) < MIN_THICKNESS_M:
             continue
         found.append(
             {

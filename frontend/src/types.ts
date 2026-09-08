@@ -4,7 +4,7 @@ export type Kind = "existing_pv" | "chimney" | "skylight" | "other_obstacle";
 export type MarkedObject = {
   polygon: Point[];
   kind: Kind;
-  source?: "manual" | "map" | "elevation";
+  source?: "manual" | "map" | "elevation" | "image";
   /** Metres this superstructure rises above its roof face, when measured. */
   height_m?: number | null;
 };

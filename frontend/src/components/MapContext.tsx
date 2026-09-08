@@ -17,6 +17,7 @@ export default function MapContext({
 }) {
   const p = capture.provenance;
   const measured = capture.objects.filter((o) => o.source === "elevation");
+  const windows = capture.objects.filter((o) => o.source === "image");
   return (
     <section className="map-context">
       <div className="map-context-title">
@@ -35,20 +36,24 @@ export default function MapContext({
         </span>
         <span>{p.crs} · metric capture</span>
         {p.pitch_deg != null && <span>Source roof pitch: {p.pitch_deg}°</span>}
-        {!!measured.length && (
+        {!!(measured.length || windows.length) && (
           <span>
-            {measured.length} roof structures measured
-            <Help title="Measured roof structures">
-              Chimneys, dormers and vents found in swisstopo's national height
-              model, which measures the roof surface every 50 cm. Anything
-              standing more than 45 cm proud of a roof face is treated as an
-              obstacle and kept clear.
+            {measured.length} raised · {windows.length} windows
+            <Help title="What was found on your roof">
+              <b>Raised structures</b> — chimneys, dormers and vents — come from
+              swisstopo's height model, which measures the roof surface every
+              50 cm. Anything standing more than 28 cm proud of its own roof
+              face is kept clear.
               <br />
               <br />
-              It cannot see flush features — a roof window set into the pitch
-              is level with it — so mark those yourself. Trees hanging over the
-              roof are in the height model too, and will be excluded like any
-              other obstruction.
+              <b>Roof windows</b> lie flush in the pitch, so no height model can
+              see them. These are found in the photo instead: glass reflects the
+              sky, so a window reads blue against a red or brown roof.
+              <br />
+              <br />
+              That last one is a colour rule, not a trained model. It can miss a
+              window in deep shadow and can be fooled by a blue-grey roof, so
+              compare the overlay with the image and mark anything missed.
             </Help>
           </span>
         )}

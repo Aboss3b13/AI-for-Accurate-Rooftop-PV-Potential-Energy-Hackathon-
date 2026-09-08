@@ -14,7 +14,10 @@ from shapely.geometry import Point, Polygon, mapping, shape
 from shapely.ops import transform, unary_union
 
 from backend.schemas.map import MapSelection
+import numpy as np
+
 from backend.services.elevation_service import ElevationUnavailable, roof_obstacles
+from backend.services.rooflight_service import detect as detect_rooflights
 
 API = "https://api3.geo.admin.ch/rest/services/ech"
 ROOF_LAYER = "ch.bfe.solarenergie-eignung-daecher"
@@ -372,6 +375,9 @@ async def prepare_capture(selection: MapSelection) -> dict:
         encoded = io.BytesIO()
         image.save(encoded, format="JPEG", quality=95)
     props = selected["properties"] if selected else {}
+    roof_pixels = (
+        pixel_ring(geometry.exterior.coords, grid) if geometry is not None else []
+    )
     objects = []
     if geometry is not None:
         for ring in geometry.interiors:
@@ -389,6 +395,29 @@ async def prepare_capture(selection: MapSelection) -> dict:
                     "source": "map",
                 }
             )
+    if geometry is not None and roof_pixels:
+        # Flush roof windows never reach the height model; the photo shows them.
+        outline = Polygon(roof_pixels)
+        if outline.is_valid:
+            already = [Polygon(o["polygon"]) for o in objects]
+            already = [p for p in already if p.is_valid]
+            for light in detect_rooflights(
+                np.asarray(image), outline, grid["pixels_per_metre"], already
+            ):
+                clipped = light["geometry"].intersection(outline)
+                if clipped.geom_type != "Polygon" or clipped.is_empty:
+                    continue
+                ring = [[round(x, 4), round(y, 4)] for x, y in clipped.exterior.coords]
+                ring = ring[:-1] if ring[0] == ring[-1] else ring
+                if len(ring) < 3:
+                    continue
+                objects.append(
+                    {
+                        "polygon": ring,
+                        "kind": "skylight",
+                        "source": "image",
+                    }
+                )
     for obstacle in detected if geometry is not None else []:
         clipped = obstacle["geometry"].intersection(geometry)
         if clipped.geom_type != "Polygon" or clipped.area < MIN_HOLE_AREA_M2:
@@ -405,17 +434,25 @@ async def prepare_capture(selection: MapSelection) -> dict:
             }
         )
     raised = [o for o in objects if o["source"] == "elevation"]
+    lights = [o for o in objects if o["source"] == "image"]
     if raised:
         warnings.append(
-            f"Measured {len(raised)} roof superstructures from the swisstopo height model. "
-            "Roof windows set flush into the pitch do not show up; mark those by hand."
+            f"Measured {len(raised)} raised roof structures from the swisstopo height model."
+        )
+    if lights:
+        warnings.append(
+            f"Found {len(lights)} likely roof windows by their reflection in the aerial photo. "
+            "Check them against the image and mark anything missed."
+        )
+    if not raised and not lights:
+        warnings.append(
+            "No roof structures found. That is not proof the roof is clear - "
+            "mark any chimneys or roof windows yourself."
         )
     return {
         "image_base64": base64.b64encode(encoded.getvalue()).decode(),
         "mime_type": "image/jpeg",
-        "roof": pixel_ring(geometry.exterior.coords, grid)
-        if geometry is not None
-        else [],
+        "roof": roof_pixels,
         "objects": objects,
         "pixels_per_metre": grid["pixels_per_metre"],
         "angle": alignment(geometry) if geometry is not None else 0,

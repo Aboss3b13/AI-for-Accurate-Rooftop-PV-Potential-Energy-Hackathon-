@@ -116,3 +116,16 @@ def test_multipolygon_facet_is_handled():
     )
     assert es.facet_mask(pair, heights.shape, MINX, MAXY).any()
     assert len(es.detect(heights, MINX, MAXY, [pair])) == 1
+
+
+def test_thickness_survives_lv95_coordinates():
+    # float32 quantises eastings near 2.68 million to 0.25 m, which would
+    # report this 0.3 m sliver as wider than it is.
+    sliver = box(2683000.0, 1247000.0, 2683000.3, 1247020.0)
+    assert es.thickness(sliver) == pytest.approx(0.3, abs=0.01)
+
+
+def test_edge_slivers_are_not_structures():
+    heights = roof()
+    heights[:, 20:21] += 2.0  # a one-cell strip, as a taller neighbour gives
+    assert es.detect(heights, MINX, MAXY, [facet()]) == []
