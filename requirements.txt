@@ -11,3 +11,4 @@ pyyaml>=6,<7
 pytest>=8,<10
 httpx>=0.28,<1
 pyproj==3.7.2
+DracoPy>=1.4,<3

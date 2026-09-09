@@ -23,6 +23,7 @@ from backend.services.elevation_service import ElevationUnavailable, roof_model
 from backend.services.roof_plane import RoofPlane, official_plane
 from backend.services.runtime_cache import captures, prepared, geodata, imagery
 from backend.services.roof_graph import TOUCH_TOLERANCE_M, rejected_summary, select_connected
+from backend.services import buildings3d_service as buildings3d
 from backend.services.rooflight_service import detect as detect_rooflights
 from backend.services.pv_field_service import detect as detect_pv_fields
 from backend.services.pv_register_service import RegisterUnavailable, registered_pv
@@ -520,7 +521,38 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             )
         geometry = selected["geometry"] if selected else None
         members = []
-        if selected is not None:
+        # swissBUILDINGS3D decides the physical roof where it can. Sonnendach
+        # stays for irradiation and suitability, matched face to face by
+        # overlap. Any failure falls through to the Sonnendach geometry below.
+        measured = None
+        if selected is not None and not selection.roof_id and not selection.polygon:
+            try:
+                building = await buildings3d.building_at(
+                    client, selection.latitude, selection.longitude)
+                candidates = buildings3d.as_roof_planes(building, click, planes)
+                if candidates and any(p["contains_click"] for p in candidates):
+                    measured = {"building": building, "members": candidates}
+            except (buildings3d.Buildings3DUnavailable, httpx.HTTPError,
+                    ValueError, KeyError, OSError, ImportError) as exc:
+                warnings.append(
+                    f"Measured 3D building geometry unavailable ({exc}); "
+                    "the official roof faces were used instead."
+                )
+        building3d = None
+        if measured is not None:
+            building = measured["building"]
+            outline = building["footprint"]
+            attributes = building.get("attributes") or {}
+            single = (outline if outline.geom_type == "Polygon"
+                      else max(outline.geoms, key=lambda g: g.area))
+            # The measured outline traces every corner of the solid; the
+            # analysis schema accepts 200 points.
+            single = bounded_simplify(single) or single
+            building3d = {"outline": outline, "display": single,
+                          "attributes": attributes,
+                          "faces": measured["members"]}
+
+        if selected is not None and not members:
             building = selected["properties"].get("building_id")
             member_ids = set(selected.get("member_ids", []))
             members = ([p for p in planes if p["id"] in member_ids]
@@ -528,6 +560,40 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                        (not selection.roof_id or selection.roof_id.startswith("building:"))
                        else [selected])
         members.sort(key=lambda p: p["id"])
+        if building3d is not None and members:
+            # swissBUILDINGS3D decides how far the building reaches; Sonnendach
+            # faces are kept for their shape and solar record but cut to it.
+            # The measured faces themselves are too finely triangulated to pack
+            # against - on one block that cost 199 modules of 199 - so they set
+            # the boundary rather than the packing surface.
+            clipped = []
+            for member in members:
+                piece = member["geometry"].intersection(building3d["outline"])
+                if piece.geom_type == "MultiPolygon":
+                    piece = max(piece.geoms, key=lambda g: g.area)
+                if piece.geom_type != "Polygon" or piece.area < MIN_PLANE_AREA_M2:
+                    continue
+                simplified = bounded_simplify(piece) or piece
+                clipped.append({**member, "geometry": simplified,
+                                "properties": {**member["properties"],
+                                               "_clipped_to_buildings3d": True}})
+            if clipped and any(p["contains_click"] for p in clipped):
+                dropped = len(members) - len(clipped)
+                members = clipped
+                selected = {**selected, "geometry": building3d["display"],
+                            "geometry_source": "swissbuildings3d",
+                            "member_ids": [p["id"] for p in members]}
+                geometry = selected["geometry"]
+                whole = {**(whole or selected), "geometry": geometry}
+                egid = building3d["attributes"].get("EGID")
+                warnings.append(
+                    "Building extent measured from swissBUILDINGS3D"
+                    + (f" (EGID {egid})" if egid else "")
+                    + f": {len(building3d['faces'])} roof surface(s), "
+                    f"{building3d['outline'].area:.0f} m² footprint."
+                    + (f" {dropped} official face(s) fell outside it."
+                       if dropped else "")
+                )
         before = len(members)
         members = merge_coplanar(members)
         if len(members) < before:
@@ -537,6 +603,10 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                 "separately charges an edge setback to boundaries that are not edges."
             )
         all_geometry = unary_union([p["geometry"] for p in members]) if members else geometry
+        if building3d is not None and all_geometry is not None:
+            # The capture has to cover what is drawn: the measured outline can
+            # reach past the official faces clipped inside it.
+            all_geometry = unary_union([all_geometry, selected["geometry"]])
         if len(members) > 1:
             selected = {**selected, "merged_planes": len(members)}
             whole = {**whole, "geometry": all_geometry}

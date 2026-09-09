@@ -233,6 +233,68 @@ The assessment also lists what remains unverified: snow/wind and structural load
 
 ## Which roof is *this* roof?
 
+The building's extent is **measured**, not inferred from a record group.
+
+When you click, SolarFit streams the swissBUILDINGS3D tile over that point,
+decodes the building solids, and takes the footprint of the one under your
+click. Sonnendach's faces are then **clipped to that footprint** — they keep
+their shape and their solar record, but they no longer decide how far the
+building reaches.
+
+```text
+click
+ → swissBUILDINGS3D tile (~136 KB, 2026)   → footprint + roof surfaces + EGID
+ → Sonnendach faces clipped to it          → irradiation, suitability
+ → swissSURFACE3D                          → plane fit, obstacles, shade
+ → aerial image                            → existing PV, flush rooflights
+```
+
+**Streamed, not downloaded.** The bulk swissBUILDINGS3D distribution is not
+usable interactively: the CityGML tile over the test area is **251 MB** and
+dated 2019. The same model is published as 3D Tiles, where the tile over one
+city block is **136 KB** and dated **2026-05-20**. Tiles are cached on disk
+under a 300 MB budget, so a second building in the same block costs nothing.
+
+A tile is a batched glTF with Draco-compressed triangles, a batch id per vertex
+and a batch table carrying **EGID**, roof heights and building use — so the
+building is identified by the same federal identifier Sonnendach and the plant
+register use.
+
+Positions reach LV95 through the transform the 3D Tiles specification
+prescribes: node TRS, then y-up to z-up, then the tile's `RTC_CENTER`, then
+ECEF. Getting that order wrong still lands in the right city, so it is checked
+against the batch table's own `DACH_MAX` — the two agree to **within a
+centimetre per building**.
+
+Roof surfaces are grouped from the triangles by plane, and only the **topmost**
+surface at each point of the plan counts: a solid carries balconies, terraces
+and floor slabs as well as its roof, and summed blindly one building reported
+294% of its own footprint as roof.
+
+### Why Sonnendach still packs the panels
+
+The measured surfaces are accurate but finely triangulated, and packing each
+fragment separately charges an edge setback to boundaries that are not edges.
+Doing that cost one block **199 of its 199 modules**. So the measured model sets
+the **boundary and identity**, and the official faces — clipped to it — remain
+the packing surfaces. Across nine Zurich buildings the panel counts hold
+(203 vs 199, 472 vs 456, 29 vs 29) while the outline now follows the physical
+building, including curved ends that no Sonnendach polygon reproduces.
+
+### If the 3D model is unavailable
+
+Every failure falls through, in this order, with the degradation recorded in
+the result:
+
+1. swissBUILDINGS3D extent + Sonnendach faces + swissSURFACE3D validation
+2. Sonnendach faces joined by the connectivity graph + swissSURFACE3D
+3. Sonnendach faces alone
+4. Draw the roof by hand on the map or on an uploaded image
+
+### Faces that merely share an identifier
+
+
+
 Sonnendach's `building_id` groups **records, not structures**. Two roofs either
 side of a courtyard can carry the same one. SolarFit used to seed its selection
 with every face sharing the clicked face's id and then only ever add to it, so
