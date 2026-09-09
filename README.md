@@ -191,6 +191,66 @@ The assessment also lists what remains unverified: snow/wind and structural load
 
 ---
 
+## Why predict what Switzerland already measured?
+
+Most of the answer is not predicted. Switzerland publishes the roof, the
+irradiation, the surface, the terrain and the installations, so those are
+looked up rather than guessed. Geometry and sun position are calculated. The
+vision model is kept for the two things nobody records.
+
+| Question | Answered by | How |
+|---|---|---|
+| Roof outline, pitch, orientation | Sonnendach, height-validated | **Measured** |
+| Annual irradiation, incl. horizon shading | Sonnendach `mstrahlung` | **Measured** |
+| Chimneys, dormers, plant rooms | swissSURFACE3D at 0.5 m | **Measured** |
+| Ground inside the roof outline | swissSURFACE3D − swissALTI3D | **Measured** |
+| Does this building already have PV? | SFOE plant register, matched on EGID | **Measured** |
+| Sun position and local shading | NOAA solar geometry + DSM rays | **Calculated** |
+| How many modules physically fit | Grid search over real rectangles | **Calculated** |
+| **Where** the existing array sits | Segmentation on the aerial image | *Inferred* |
+| Flush roof windows | Reflection contrast in the image | *Inferred* |
+
+The result panel carries this table for the roof you are looking at, so the
+strength of every number is visible rather than implied.
+
+### The register and the image check each other
+
+The [SFOE register of electricity production plants](https://www.bfe.admin.ch/fr/installations-production-electrique)
+is keyed by the federal building identifier, and Sonnendach carries the same
+identifier for every roof face, so the two join exactly. The register gives
+capacity, commissioning date and mounting type as recorded fact.
+
+It gives **capacity, never position** — it will say a 25.5 kW array exists, not
+which part of the roof it covers. So it does not replace the vision model; it
+audits it, and it catches the failure the model is worst at:
+
+```text
+Register:  1 installation, 25.5 kW        (Bubenbergstrasse, Zurich)
+Image:     0 arrays found on this roof
+→ "The federal register lists PV on this building (25.5 kW), but none was
+   found on it in the image. Mark the existing array, or modules may be
+   proposed where panels already stand."
+```
+
+That is a real building, and a real miss by the detector, surfaced by official
+data instead of going unnoticed.
+
+The check runs the other way too. Panels found on a roof with no register entry
+are reported as expected rather than contradictory, because the register only
+covers the guarantee-of-origin system: **absence is weak evidence**, so it is
+reported as unknown, never as none.
+
+### What is deliberately not claimed
+
+swissBUILDINGS3D would give true 3D roof surfaces, but swisstopo states that
+smaller roof details and dormers are generally not modelled, so it would not
+remove the need for the surface model or the image. Setback and fire-access
+rules vary by canton, municipality, building type and heritage status, so the
+clearances here are **configurable planning assumptions**, not a compliance
+check.
+
+---
+
 ## How it finds obstacles
 
 There is no chimney detector to train — the Swiss training masks label solar panels and nothing else. So SolarFit measures instead of guessing.

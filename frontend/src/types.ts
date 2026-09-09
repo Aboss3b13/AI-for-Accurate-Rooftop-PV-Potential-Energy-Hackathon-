@@ -34,6 +34,21 @@ export type Analysis = {
   faces?: RoofFace[];
   map_overlay?: { type: "FeatureCollection"; features: { type: "Feature"; geometry: Geometry; properties: { layer: string; face_id: string; irradiation_kwh_m2_year?: number | null } }[] };
   energy_available?: boolean;
+  pv_register?: {
+    known: boolean;
+    plant_count: number;
+    total_power_kw: number | null;
+    plants: { power_kw: number | null; commissioned: string | null;
+              mounting: string | null; address: string | null }[];
+    basis: string;
+    coverage_note: string;
+  };
+  data_provenance?: {
+    fact: string;
+    kind: "measured" | "calculated" | "inferred" | "supplied";
+    source: string;
+    detail: string;
+  }[];
   sonnendach?: {
     official_area_m2: number;
     official_annual_energy_kwh: number | null;

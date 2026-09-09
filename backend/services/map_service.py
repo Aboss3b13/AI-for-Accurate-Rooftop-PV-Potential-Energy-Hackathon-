@@ -23,6 +23,7 @@ from backend.services.elevation_service import ElevationUnavailable, roof_model
 from backend.services.roof_plane import RoofPlane, official_plane
 from backend.services.runtime_cache import captures, prepared, geodata, imagery
 from backend.services.rooflight_service import detect as detect_rooflights
+from backend.services.pv_register_service import RegisterUnavailable, registered_pv
 
 API = "https://api3.geo.admin.ch/rest/services/ech"
 ROOF_LAYER = "ch.bfe.solarenergie-eignung-daecher"
@@ -514,6 +515,17 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             )
         encoded = io.BytesIO()
         image.save(encoded, format="JPEG", quality=95)
+        # What Switzerland already records as installed, before any detection.
+        register = {"known": False, "plant_count": 0, "total_power_kw": None,
+                    "plants": [], "egids": [],
+                    "basis": "SFOE register of electricity production plants.",
+                    "coverage_note": "Not consulted."}
+        egids = [p["properties"].get("gwr_egid") for p in members] if members else []
+        if egids:
+            try:
+                register = await registered_pv(client, egids)
+            except RegisterUnavailable as exc:
+                warnings.append(f"Registered PV could not be checked ({exc}).")
     props = selected["properties"] if selected else {}
     roof_pixels = (
         pixel_ring(geometry.exterior.coords, grid) if geometry is not None else []
@@ -597,15 +609,24 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             "No roof structures found. That is not proof the roof is clear - "
             "mark any chimneys or roof windows yourself."
         )
+    if register.get("known"):
+        power = register.get("total_power_kw")
+        warnings.append(
+            f"The federal register records {register['plant_count']} PV installation(s) "
+            f"on this building" + (f", {power:g} kW in total" if power else "")
+            + ". The register holds capacity, not position, so where the panels sit "
+            "still comes from the image."
+        )
     capture_id = uuid.uuid4().hex
     faces = [{**p, "plane": plane, "sunlight": sun} for p, plane, sun in zip(members, model_planes, sunlight)]
     # Hash the decoded JPEG, exactly as the analyse endpoint receives it.
     decoded = Image.open(io.BytesIO(encoded.getvalue())).convert("RGB")
-    captures.put(capture_id, {"faces": faces, "grid": grid,
+    captures.put(capture_id, {"faces": faces, "grid": grid, "pv_register": register,
                  "image_hash": hashlib.sha256(decoded.tobytes()).hexdigest(),
                  "warnings": list(warnings), "default_angle": alignment(geometry) if geometry is not None else 0})
     return {
         "capture_id": capture_id,
+        "pv_register": register,
         "roof_faces": [{**public_plane(p), "roof": pixel_ring(p["geometry"].exterior.coords, grid),
                         "plane": plane.describe()} for p, plane in zip(members, model_planes)],
         "image_base64": base64.b64encode(encoded.getvalue()).decode(),

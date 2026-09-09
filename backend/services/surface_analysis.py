@@ -14,7 +14,7 @@ from backend.services.panel_optimizer import optimise_panels
 from backend.services.energy_service import capacity
 from backend.services.confidence_service import summarise_confidence
 from backend.services.sunlight_service import sunlight_exclusions, public_sunlight
-from backend.services.suitability_service import assess_face, dimensions, grouped_panels, building_assessment, sonnendach_comparison
+from backend.services.suitability_service import assess_face, dimensions, grouped_panels, building_assessment, sonnendach_comparison, data_provenance
 
 TO_WGS84 = Transformer.from_crs(2056, 4326, always_xy=True)
 
@@ -127,6 +127,9 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
         raise ValueError("This image does not match the roof model. Reload the map capture.")
     if not math.isclose(settings.pixels_per_metre or 0, context["grid"]["pixels_per_metre"], rel_tol=1e-5):
         raise ValueError("Map scale is fixed by its georeferencing. Restore the map scale or upload the image separately.")
+    # The register says whether an array exists; the image says where. Each is
+    # blind where the other sees, so disagreement is worth stating plainly.
+    register = context.get("pv_register") or {}
     geo = GeoReference(context["grid"])
     warnings = list(dict.fromkeys(context["warnings"] + warnings))
     ids = {f["id"] for f in context["faces"]}
@@ -291,10 +294,30 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
         for part in parts(obj["world"].intersection(outline)):
             display_objects.append({k: v for k, v in obj.items() if k not in {"geometry", "world", "polygon"}} |
                 {"polygon": list(transform(geo.pixel, part).exterior.coords)[:-1]})
+    # Compared on this roof only: the model also sees panels on the buildings
+    # next door, and those must not stand in for this building's array.
+    seen_pv = sum(1 for o in display_objects if o["kind"] == "existing_pv")
+    if register.get("known") and not seen_pv:
+        power = register.get("total_power_kw")
+        warnings.append(
+            "The federal register lists PV on this building"
+            + (f" ({power:g} kW)" if power else "")
+            + ", but none was found on it in the image. Mark the existing array, "
+            "or modules may be proposed where panels already stand."
+        )
+    elif seen_pv and register.get("egids") and not register.get("known"):
+        warnings.append(
+            "Panels were found on this roof with no matching entry in the federal "
+            "register. Small private arrays are often unregistered, so this is "
+            "expected rather than a contradiction."
+        )
+    warnings = list(dict.fromkeys(warnings))
     return {"roof": mapping(transform(geo.pixel, outline)),
             "usable_area": mapping(transform(geo.pixel, safe_union([f["plane"].world_geometry(f["usable"]) for f in faces]))),
             "excluded_area": mapping(transform(geo.pixel, safe_union([f["plane"].world_geometry(f["excluded"]) for f in faces]))),
             "proposed_panels": image_panels,
+            "pv_register": register,
+            "data_provenance": data_provenance(register, faces, display_objects, model),
             "existing_pv": [o for o in display_objects if o["kind"] == "existing_pv"],
             "obstacles": [o for o in display_objects if o["kind"] != "existing_pv"],
             "faces": public_faces, "map_overlay": {"type": "FeatureCollection", "features": features},

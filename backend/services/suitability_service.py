@@ -193,3 +193,59 @@ def sonnendach_comparison(context_faces, faces, settings, annual_energy_kwh, pan
                  "against the modules SolarFit can actually place. The breakdown "
                  "is measured on SolarFit's own roof surface, face by face.",
     }
+
+
+def data_provenance(register, faces, objects, model):
+    """Say where each part of the answer came from.
+
+    The point of the design is that very little of it is predicted. Roof shape,
+    orientation and irradiation are published measurements; sun geometry and
+    shading are calculated; only the two things nobody records - where an
+    existing array sits, and where a flush roof window is - are inferred from
+    the photograph.
+    """
+    detected_pv = sum(1 for o in objects if o["kind"] == "existing_pv")
+    raised = sum(1 for o in objects if o.get("source") == "elevation")
+    ground = sum(1 for o in objects if o.get("source") == "terrain")
+    windows = sum(1 for o in objects if o.get("source") == "image")
+    manual = sum(1 for o in objects if o.get("source") == "manual")
+    fitted = sum(1 for f in faces if f["plane"].source != "projected_2d")
+    return [
+        {"fact": "Roof outline, pitch and orientation", "kind": "measured",
+         "source": "Sonnendach roof faces (SFOE), height-validated against "
+                   "swissSURFACE3D",
+         "detail": f"{len(faces)} face(s), {fitted} with a supported height fit"},
+        {"fact": "Annual irradiation", "kind": "measured",
+         "source": "Sonnendach mean annual irradiation per face",
+         "detail": "Already includes orientation, tilt and horizon shading"},
+        {"fact": "Chimneys, dormers and roof structures", "kind": "measured",
+         "source": "swissSURFACE3D surface model at 0.5 m",
+         "detail": f"{raised} structure(s) standing proud of their own roof face"},
+        {"fact": "Ground inside the roof outline", "kind": "measured",
+         "source": "swissSURFACE3D minus swissALTI3D terrain",
+         "detail": f"{ground} area(s) excluded as not being roof"},
+        {"fact": "Existing PV on this building", "kind": "measured",
+         "source": "SFOE register of electricity production plants, matched on EGID",
+         "detail": (f"{register.get('plant_count')} plant(s)"
+                    + (f", {register['total_power_kw']:g} kW"
+                       if register.get("total_power_kw") else "")
+                    if register.get("known")
+                    else "No registered plant; absence is not proof of none")},
+        {"fact": "Sun position and local shading", "kind": "calculated",
+         "source": "NOAA solar geometry with DSM ray sampling over 120 m",
+         "detail": "Twelve representative days, half-hourly"},
+        {"fact": "Module layout", "kind": "calculated",
+         "source": "Grid search over both orientations with configurable clearances",
+         "detail": "Real module rectangles, not an area division"},
+        {"fact": "Where the existing array sits", "kind": "inferred",
+         "source": model.get("model") or "segmentation model",
+         "detail": f"{detected_pv} region(s) found in the aerial image; the "
+                   "register records capacity but never position"},
+        {"fact": "Flush roof windows", "kind": "inferred",
+         "source": "Reflection contrast in the aerial image",
+         "detail": f"{windows} candidate(s); a flush window rises above nothing, "
+                   "so no height model can see it"},
+        {"fact": "Corrections you made", "kind": "supplied",
+         "source": "Marked by hand in the editor",
+         "detail": f"{manual} object(s)"},
+    ]

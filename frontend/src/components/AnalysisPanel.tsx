@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import Help from "./Help";
 import SonnendachCard from "./SonnendachCard";
+import ProvenanceCard from "./ProvenanceCard";
 import type { Analysis, Mode } from "../types";
 type Props = {
   result: Analysis | null;
@@ -279,6 +280,7 @@ export default function AnalysisPanel({
         </div>
       )}
       {result && <SonnendachCard result={result} />}
+      {result && <ProvenanceCard result={result} />}
       {Object.keys(comparisons).length > 1 && (
         <div className="comparison-card">
           <h3>Layouts explored</h3>
