@@ -20,7 +20,7 @@ from backend.schemas.map import MapSelection
 import numpy as np
 
 from backend.services.elevation_service import ElevationUnavailable, roof_model
-from backend.services.roof_plane import RoofPlane
+from backend.services.roof_plane import RoofPlane, official_plane
 from backend.services.runtime_cache import captures, prepared, geodata, imagery
 from backend.services.rooflight_service import detect as detect_rooflights
 
@@ -196,7 +196,7 @@ def feature_planes(features: list[dict], click: Point) -> list[dict]:
                 {
                     "id": identifier,
                     "geometry": simplified,
-                    "properties": props,
+                    "properties": {**props, "_source_projected_area": geometry.area},
                     "contains_click": part.covers(click),
                     "distance": part.distance(click),
                 }
@@ -365,8 +365,8 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             selected = {**selected, "merged_planes": len(members)}
             whole = {**whole, "geometry": all_geometry}
         grid = capture_grid(all_geometry, click, selection.span_m)
-        model_planes = [RoofPlane.from_slopes(*p["geometry"].centroid.coords[0],
-                        diagnostics={"fallback_reason": "Height model unavailable", "point_count": 0}) for p in members]
+        model_planes = [official_plane(p["geometry"], p["properties"]) for p in members]
+        sunlight = [{"available": False, "reason": "Surrounding height data unavailable."} for _ in members]
         image_key = json.dumps(grid, sort_keys=True)
         image_content = imagery.get(image_key)
         if image_content is None:
@@ -396,19 +396,9 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             # The height model sees chimneys and dormers the PV-only model cannot.
             facets = [p["geometry"] for p in members]
             try:
-                model = await roof_model(client, facets, all_geometry.bounds)
+                model = await roof_model(client, facets, all_geometry.bounds, [p["properties"] for p in members])
                 detected, model_planes = model["obstacles"], model["planes"]
-                checked = []
-                for member, plane in zip(members, model_planes):
-                    official_pitch = member["properties"].get("neigung")
-                    measured = plane.describe()
-                    if (plane.source == "swisssurface3d" and official_pitch is not None
-                            and abs(float(official_pitch) - measured["pitch_deg"]) > 15):
-                        plane = RoofPlane.from_slopes(*member["geometry"].centroid.coords[0],
-                            diagnostics={**plane.diagnostics, "rejected_fit": measured,
-                                "fallback_reason": "DSM pitch differs from the official face by more than 15 degrees."})
-                    checked.append(plane)
-                model_planes = checked
+                sunlight = model["sunlight"]
             except ElevationUnavailable as exc:
                 warnings.append(
                     f"Roof superstructures could not be measured ({exc}). "
@@ -478,9 +468,15 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             {
                 "polygon": polygon,
                 "kind": obstacle["kind"],
-                "source": "elevation",
+                "source": "terrain" if obstacle.get("below_roof") else "elevation",
                 "height_m": obstacle["height_m"],
             }
+        )
+    ground = [o for o in objects if o["source"] == "terrain"]
+    if ground:
+        warnings.append(
+            f"Excluded {len(ground)} area(s) lying more than 1.5 m below the roof face. "
+            "An official roof outline can span a whole block and take in its courtyard."
         )
     raised = [o for o in objects if o["source"] == "elevation"]
     lights = [o for o in objects if o["source"] == "image"]
@@ -499,7 +495,7 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             "mark any chimneys or roof windows yourself."
         )
     capture_id = uuid.uuid4().hex
-    faces = [{**p, "plane": plane} for p, plane in zip(members, model_planes)]
+    faces = [{**p, "plane": plane, "sunlight": sun} for p, plane, sun in zip(members, model_planes, sunlight)]
     # Hash the decoded JPEG, exactly as the analyse endpoint receives it.
     decoded = Image.open(io.BytesIO(encoded.getvalue())).convert("RGB")
     captures.put(capture_id, {"faces": faces, "grid": grid,

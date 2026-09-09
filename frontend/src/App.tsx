@@ -3,6 +3,7 @@ import SatelliteMap from "./components/SatelliteMap";
 import RoofFaces from "./components/RoofFaces";
 import MapContext from "./components/MapContext";
 import Help from "./components/Help";
+import { api } from "./http";
 import { prepareMapCapture, type MapCapture, type MapPick } from "./mapTypes";
 import "./map.css";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -57,6 +58,9 @@ export default function App() {
   const [faceOverrides, setFaceOverrides] = useState<Record<string, Point[]>>({});
   const [objective, setObjective] = useState<"capacity" | "energy">("capacity");
   const [panelLimit, setPanelLimit] = useState("");
+  const [layoutPolicy, setLayoutPolicy] = useState<"recommended" | "physical">("recommended");
+  const [annualUse, setAnnualUse] = useState("");
+  const [existingGeneration, setExistingGeneration] = useState("");
   const [mapCapture, setMapCapture] = useState<MapCapture | null>(null);
   const [mapBusy, setMapBusy] = useState(false),
     [mapError, setMapError] = useState("");
@@ -101,6 +105,7 @@ export default function App() {
       safety: false,
       usable: true,
       panels: true,
+      shade: true,
     }),
     [original, setOriginal] = useState(false);
   const [examples, setExamples] = useState<Example[]>([]),
@@ -120,7 +125,7 @@ export default function App() {
     verified,
     angle,
     yieldValue,
-    objective, panelLimit,
+    objective, panelLimit, layoutPolicy, annualUse, existingGeneration,
     ai,
     edge,
     obstacleMargin,
@@ -131,7 +136,7 @@ export default function App() {
   }, [result]);
   useEffect(() => registerAnalysisReader(() => completed.current), []);
   useEffect(() => {
-    fetch("/api/health")
+    api("/api/health")
       .then((r) => r.json())
       .then((d) =>
         setModel(
@@ -141,7 +146,7 @@ export default function App() {
         ),
       )
       .catch(() => setModel("Backend offline"));
-    fetch("/examples/manifest.json")
+    api("/examples/manifest.json")
       .then((r) => r.json())
       .then(setExamples)
       .catch(() => {});
@@ -185,6 +190,7 @@ export default function App() {
       setSourceView(fromMap ? "map" : "editor");
       setInspectedFace(""); setEditedFace(""); setFaceOverrides({}); setBuildingOverride(null);
       setObjective("capacity"); setPanelLimit("");
+      setLayoutPolicy("recommended"); setAnnualUse(""); setExistingGeneration("");
       setMapCapture(null);
       setMapEdited(false);
       setPendingMapAnalysis(false);
@@ -253,7 +259,7 @@ export default function App() {
   }
   async function loadExample(e: Example) {
     try {
-      const r = await fetch(e.image);
+      const r = await api(e.image);
       if (!r.ok) throw Error("Example unavailable");
       await loadFile(
         new File([await r.blob()], e.name + ".jpg", { type: "image/jpeg" }),
@@ -324,6 +330,9 @@ export default function App() {
         building_override: buildingOverride,
         objective: mapCapture ? objective : "capacity",
         max_panels: mapCapture && panelLimit ? Number(panelLimit) : null,
+        layout_policy: layoutPolicy,
+        annual_consumption_kwh: annualUse !== "" ? Number(annualUse) : null,
+        existing_generation_kwh: existingGeneration !== "" ? Number(existingGeneration) : null,
         objects,
         mode,
         panel,
@@ -339,7 +348,7 @@ export default function App() {
       }),
     );
     try {
-      const r = await fetch("/api/analyse", {
+      const r = await api("/api/analyse", {
         method: "POST",
         body: form,
         signal: controller.signal,
@@ -386,12 +395,13 @@ export default function App() {
     verified,
     angle,
     yieldValue,
-    objective, panelLimit,
+    objective, panelLimit, layoutPolicy, annualUse, existingGeneration,
     ai,
     edge,
     obstacleMargin,
     pvMargin,
     draft.length, buildingOverride, mapCapture, mapEdited, editedFace, faceOverrides, objective, panelLimit,
+    layoutPolicy, annualUse, existingGeneration,
   ]);
   useEffect(() => {
     if (pendingMapAnalysis && file && roof.length > 2) {
@@ -414,7 +424,7 @@ export default function App() {
     verified,
     angle,
     yieldValue,
-    objective, panelLimit,
+    objective, panelLimit, layoutPolicy, annualUse, existingGeneration,
     ai,
     edge,
     obstacleMargin,
@@ -441,6 +451,7 @@ export default function App() {
           {
             ...result,
             input: { roof, objects, panel, mode, angle, objective, max_panels: panelLimit || null,
+              layout_policy: layoutPolicy, annual_consumption_kwh: annualUse || null, existing_generation_kwh: existingGeneration || null,
               face_overrides: faceOverrides, building_override: buildingOverride,
               pixels_per_metre: ppm, annual_specific_yield: yieldValue || null,
               edge_margin: edge, obstacle_margin: obstacleMargin, pv_margin: pvMargin },
@@ -536,7 +547,7 @@ export default function App() {
               visible={sourceView === "map"}
               onPick={pickMapRoof}
               busy={mapBusy || busy}
-              phase={mapBusy ? "Loading official faces, aerial imagery and roof height model" : "Analysing imagery and optimising each roof surface"}
+              phase={mapBusy ? "Checking official roof geometry, surroundings and seasonal shade" : "Analysing imagery and screening panel layouts"}
               error={mapError || error}
               capture={mapCapture}
               result={result}
@@ -547,6 +558,8 @@ export default function App() {
             />
             {result?.faces && <RoofFaces result={result} selected={inspectedFace} onSelect={setInspectedFace}
               onEdit={editInspectedFace} objective={objective} setObjective={setObjective}
+              policy={layoutPolicy} setPolicy={setLayoutPolicy} annualUse={annualUse} setAnnualUse={setAnnualUse}
+              existingGeneration={existingGeneration} setExistingGeneration={setExistingGeneration}
               limit={panelLimit} setLimit={setPanelLimit} busy={busy || mapBusy} />}
             {sourceView === "editor" && mapCapture && (
               <MapContext

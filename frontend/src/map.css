@@ -534,3 +534,115 @@
 .surface-inspector pre { max-height: 360px; overflow: auto; font-size: 11px; }
 .surface-inspector .map-context-title strong, .surface-inspector .roof-plane-select { font-size: 14px; color: #244f3d; }
 .surface-inspector p { font-size: 14px; color: #55664b; }
+.site-assessment { border-bottom: 1px solid #cfddbf; padding-bottom: 16px; margin-bottom: 18px; }
+.site-assessment > strong { font-size: 18px; color: #244f3d; }
+.surface-inspector summary { cursor: pointer; font-size: 14px; color: #244f3d; margin: 12px 0; }
+.surface-objective input[type="checkbox"] { width: 16px; height: 16px; accent-color: #244f3d; }
+.face-verdict { padding: 12px; background: #ffffffa8; border-radius: 8px; text-transform: none; }
+.face-verdict > b { text-transform: capitalize; color: #244f3d; }
+.layer.shade > span { background: #8061b8; }
+
+/* Official Sonnendach potential against what actually fits. */
+.sonnendach-card {
+  border: 1px solid #dfe7d4;
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 18px;
+  background: #fff;
+}
+.sonnendach-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.sonnendach-bars > div {
+  margin-bottom: 13px;
+}
+.sonnendach-bars span {
+  display: block;
+  font-size: 10px;
+  color: #8b9880;
+  margin-bottom: 5px;
+}
+.sonnendach-bars .bar {
+  height: 10px;
+  border-radius: 5px;
+  background: #eef2e8;
+  overflow: hidden;
+}
+.sonnendach-bars .bar i {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+}
+.sonnendach-bars .official i {
+  background: #c7d3b8;
+}
+.sonnendach-bars .fitted i {
+  background: #4b7139;
+}
+.sonnendach-bars strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #1f4432;
+}
+.sonnendach-bars small {
+  font-size: 10px;
+  font-weight: 500;
+  color: #8b9880;
+}
+.sonnendach-delta {
+  margin: 4px 0 16px;
+  font-size: 11px;
+  color: #7a8872;
+}
+.sonnendach-delta b {
+  color: #a8481f;
+  font-size: 14px;
+  margin-right: 5px;
+}
+.sonnendach-why {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8b9880;
+  margin-bottom: 9px;
+}
+.sonnendach-breakdown {
+  margin: 0;
+}
+.sonnendach-breakdown > div {
+  margin-bottom: 9px;
+}
+.sonnendach-breakdown dt {
+  font-size: 11px;
+  color: #5d6b56;
+  margin-bottom: 4px;
+}
+.sonnendach-breakdown dd {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+}
+.sonnendach-breakdown dd i {
+  display: block;
+  height: 7px;
+  border-radius: 4px;
+  background: #d7b26a;
+  min-width: 2px;
+}
+.sonnendach-breakdown dd span {
+  font-size: 10px;
+  color: #8b9880;
+  white-space: nowrap;
+}
+.sonnendach-basis {
+  margin: 14px 0 0;
+  font-size: 9px;
+  line-height: 1.65;
+  color: #9baa8f;
+}

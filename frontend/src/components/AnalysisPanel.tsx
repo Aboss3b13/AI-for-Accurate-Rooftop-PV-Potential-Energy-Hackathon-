@@ -8,6 +8,7 @@ import {
   Download,
 } from "lucide-react";
 import Help from "./Help";
+import SonnendachCard from "./SonnendachCard";
 import type { Analysis, Mode } from "../types";
 type Props = {
   result: Analysis | null;
@@ -44,7 +45,7 @@ export default function AnalysisPanel({
             {busy ? "Processing" : stats ? "Complete" : "Ready when you are"}
           </span>
         </div>
-        <h2>Room for more.</h2>
+        <h2>{result?.assessment?.status === "annual_target_met" ? "Annual target met." : result?.assessment?.status === "not_recommended" ? "Review this roof." : "Room for more."}</h2>
         <p className="muted">Additional capacity, fitted to your roof.</p>
         <div className="hero-stat">
           <span>{stats ? stats.additional_panel_count : "—"}</span>
@@ -239,6 +240,7 @@ export default function AnalysisPanel({
           ))}
         </div>
       )}
+      {result && <SonnendachCard result={result} />}
       {Object.keys(comparisons).length > 1 && (
         <div className="comparison-card">
           <h3>Layouts explored</h3>

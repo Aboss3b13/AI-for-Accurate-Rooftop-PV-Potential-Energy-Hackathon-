@@ -129,3 +129,56 @@ def test_edge_slivers_are_not_structures():
     heights = roof()
     heights[:, 20:21] += 2.0  # a one-cell strip, as a taller neighbour gives
     assert es.detect(heights, MINX, MAXY, [facet()]) == []
+
+
+def test_ground_far_below_the_face_is_not_roof():
+    # A Sonnendach face can span a block and take in its courtyard. Panels were
+    # being packed onto the garden inside it.
+    heights = roof()
+    heights[8:32, 8:32] -= 6.0  # a courtyard, six metres down
+    found = es.detect(heights, MINX, MAXY, [facet()])
+    assert len(found) == 1
+    assert found[0]["below_roof"] is True
+    assert found[0]["area_m2"] > 100
+
+
+def test_a_shallow_valley_is_still_roof():
+    heights = roof()
+    heights[16:24, 16:24] -= 0.6  # roof texture, not a storey
+    assert es.detect(heights, MINX, MAXY, [facet()]) == []
+
+
+def test_a_chimney_is_not_reported_as_ground():
+    heights = roof()
+    heights[18:22, 18:22] += 2.0
+    found = es.detect(heights, MINX, MAXY, [facet()])
+    assert len(found) == 1
+    assert found[0]["below_roof"] is False
+
+
+def test_terrain_tells_a_yard_from_a_roof():
+    # The courtyard is the flatter, larger surface here, so a consensus fit on
+    # the surface model alone settles on the ground and calls the roof an
+    # obstacle. Height above terrain settles it.
+    heights = roof()
+    heights[:, :24] -= 8.0  # half the face is actually the yard below
+    above = np.full(heights.shape, 9.0, np.float32)
+    above[:, :24] = 0.2
+    found = es.detect(heights, MINX, MAXY, [facet()], None, above)
+    ground = [o for o in found if o["below_roof"]]
+    assert ground, "the yard should be excluded"
+    assert max(o["area_m2"] for o in ground) > 50
+
+
+def test_a_roof_well_above_ground_is_left_alone():
+    heights = roof()
+    above = np.full(heights.shape, 9.0, np.float32)
+    assert es.detect(heights, MINX, MAXY, [facet()], None, above) == []
+
+
+def test_terrain_still_lets_a_chimney_through():
+    heights = roof()
+    heights[18:22, 18:22] += 2.0
+    above = np.full(heights.shape, 9.0, np.float32)
+    found = es.detect(heights, MINX, MAXY, [facet()], None, above)
+    assert len(found) == 1 and found[0]["below_roof"] is False

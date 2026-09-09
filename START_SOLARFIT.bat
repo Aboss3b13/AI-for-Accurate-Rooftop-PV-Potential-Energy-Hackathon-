@@ -11,7 +11,7 @@ echo Setting up SolarFit. First run downloads Python packages and CUDA support.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\setup.ps1"
 if errorlevel 1 goto error
 :run
-".venv\Scripts\python.exe" scripts\launch.py
+".venv\Scripts\python.exe" scripts\launch.py %*
 if errorlevel 1 goto error
 exit /b 0
 :error

@@ -1,3 +1,4 @@
+import { api } from "./http";
 import type { Geometry, MarkedObject, Point } from "./types";
 
 export type MapPlane = {
@@ -58,7 +59,7 @@ export async function prepareMapCapture(
   pick: MapPick,
   signal?: AbortSignal,
 ): Promise<MapCapture> {
-  const response = await fetch("/api/map/prepare", {
+  const response = await api("/api/map/prepare", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(pick),

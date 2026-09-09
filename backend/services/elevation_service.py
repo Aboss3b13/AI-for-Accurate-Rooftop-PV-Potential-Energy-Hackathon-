@@ -12,6 +12,7 @@ the surface and are invisible here. They still need marking by hand.
 
 import asyncio
 import math
+import uuid
 from pathlib import Path
 
 import cv2
@@ -24,6 +25,7 @@ from shapely import contains_xy
 
 STAC = "https://data.geo.admin.ch/api/stac/v0.9/collections"
 COLLECTION = "ch.swisstopo.swisssurface3d-raster"
+TERRAIN_COLLECTION = "ch.swisstopo.swissalti3d"
 TO_WGS84 = Transformer.from_crs(2056, 4326, always_xy=True)
 CACHE = Path(__file__).resolve().parents[2] / ".cache" / "dsm"
 DSM_STEP_M = 0.5
@@ -31,7 +33,12 @@ DSM_STEP_M = 0.5
 # A superstructure must clear the roof face by this much to count. Flat-roof
 # rooflight kerbs sit around 0.3 m, so the floor is set just under that.
 MIN_HEIGHT_M = 0.28
-# The plane is fitted to this share of the height spread: the roof deck.
+# Consensus plane fit: a cell within this distance of a trial plane counts as
+# lying on it, and this many trials are drawn.
+FIT_TOLERANCE_M = 0.25
+FIT_ITERATIONS = 200
+FIT_SEED = 20260908
+# Share of the residual spread taken as clear deck when sizing its roughness.
 BASE_PERCENTILE = 50.0
 # ...and the cut-off rises with the roughness of that deck.
 NOISE_SIGMAS = 4.0
@@ -44,6 +51,16 @@ CHIMNEY_MAX_AREA_M2 = 2.5
 # Nothing on a roof is thinner than this across; anything that is comes from
 # the roof outline running along a taller neighbour, not from a structure.
 MIN_THICKNESS_M = 0.7
+# A face can extend over ground that is not roof at all: Sonnendach outlines
+# sometimes span a block and swallow its courtyard. Roof texture and valleys
+# stay well within a metre, so anything this far below the fitted face is not
+# part of it.
+MIN_DROP_M = 1.5
+MIN_DROP_AREA_M2 = 4.0
+MAX_DROP_FRACTION = 0.95
+# Surface minus terrain. A roof stands at least this far over the ground it
+# covers, so anything lower inside an official outline is a yard, not a roof.
+MIN_ROOF_HEIGHT_M = 2.0
 PAD_M = 2.0
 MAX_TILES = 4
 # Each tile is ~13 MB and covers a square kilometre; keep the cache bounded.
@@ -56,20 +73,32 @@ class ElevationUnavailable(Exception):
     """The height model could not be read; the caller carries on without it."""
 
 
-async def tile_hrefs(client: httpx.AsyncClient, bounds) -> list[str]:
+async def tile_hrefs(client: httpx.AsyncClient, bounds, collection=None) -> list[str]:
     minx, miny, maxx, maxy = bounds
     west, south = TO_WGS84.transform(minx, miny)
     east, north = TO_WGS84.transform(maxx, maxy)
     response = await client.get(
-        f"{STAC}/{COLLECTION}/items",
-        params={"bbox": f"{west},{south},{east},{north}"},
+        f"{STAC}/{collection or COLLECTION}/items",
+        params={"bbox": f"{west},{south},{east},{north}", "limit": 100},
     )
     response.raise_for_status()
     hrefs = []
-    for feature in response.json().get("features", []):
+    covered = set()
+    features = sorted(response.json().get("features", []),
+                      key=lambda f: str(f.get("properties", {}).get("datetime") or f.get("id", "")), reverse=True)
+    for feature in features:
         for asset in feature.get("assets", {}).values():
             href = asset.get("href", "")
             if asset.get("type", "").startswith("image/tiff") and href.endswith(".tif"):
+                name = href.rsplit("/", 1)[-1]
+                # swissALTI3D also publishes a 2 m grid; keep the half-metre one
+                # so terrain lines up cell for cell with the surface model.
+                if f"_{DSM_STEP_M}_" not in name:
+                    continue
+                origin = tile_origin(Path(name))
+                if origin in covered:
+                    continue
+                covered.add(origin)
                 hrefs.append(href)
     return hrefs
 
@@ -92,7 +121,7 @@ async def cached_tile(client: httpx.AsyncClient, href: str) -> Path:
         return path
     response = await client.get(href, follow_redirects=True, timeout=180)
     response.raise_for_status()
-    temporary = path.with_suffix(".part")
+    temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".part")
     temporary.write_bytes(response.content)
     temporary.replace(path)
     prune_cache()
@@ -166,12 +195,15 @@ def facet_mask(polygon, shape, minx: float, maxy: float) -> np.ndarray:
 
 
 def fit_plane(heights: np.ndarray, mask: np.ndarray) -> dict | None:
-    """Fit the roof face to its own slope, then measure what stands above it.
+    """Fit the roof face to its own slope, then measure what stands off it.
 
-    Superstructures only ever push the surface up, so the fit is anchored to the
-    lower part of the height spread. A symmetric fit is dragged upward by a big
-    rooftop plant room until nothing stands out from it any more - on one flat
-    industrial roof that left a 1.13 m spread and 40% of cells "raised".
+    Found by consensus rather than by trimming, because trimming cannot survive
+    both tails. A rooftop plant room pushes cells up; a courtyard inside an
+    over-large official outline drops them a whole storey. Anchoring to the low
+    side lets the courtyard capture the plane, anchoring to the median lets an
+    edge-aligned plant room tilt it - a sloped plane fits a step almost as well
+    as a flat one does. Consensus takes the largest genuinely planar population
+    wherever it sits, which is the roof.
     """
     valid = mask & np.isfinite(heights)
     if int(valid.sum()) < 12:
@@ -181,23 +213,41 @@ def fit_plane(heights: np.ndarray, mask: np.ndarray) -> dict | None:
     design = np.column_stack(
         [cols.astype(np.float64), rows.astype(np.float64), np.ones(z.size)]
     )
-    keep = np.ones(z.size, dtype=bool)
-    residual = np.zeros(z.size)
-    for _ in range(6):
-        if int(keep.sum()) < 8:
-            return None
+    count = z.size
+    # Seeded, so the same roof always returns the same plane.
+    rng = np.random.default_rng(FIT_SEED)
+    best_inliers, best_count = None, -1
+    for _ in range(FIT_ITERATIONS):
+        sample = rng.choice(count, 3, replace=False)
+        corner = design[sample]
+        if abs(float(np.linalg.det(corner))) < 1e-9:
+            continue
+        try:
+            trial = np.linalg.solve(corner, z[sample])
+        except np.linalg.LinAlgError:
+            continue
+        inliers = np.abs(z - design @ trial) <= FIT_TOLERANCE_M
+        found = int(inliers.sum())
+        if found > best_count:
+            best_inliers, best_count = inliers, found
+    keep = best_inliers if best_inliers is not None else np.ones(count, dtype=bool)
+    if int(keep.sum()) < 8:
+        keep = np.ones(count, dtype=bool)
+    residual = np.zeros(count)
+    solution = np.zeros(3)
+    for _ in range(3):
         solution, *_ = np.linalg.lstsq(design[keep], z[keep], rcond=None)
         residual = z - design @ solution
-        # Keep the lower part of the spread, so the plane settles on the roof
-        # deck rather than splitting the difference with whatever sits on it.
-        cut = float(np.percentile(residual, BASE_PERCENTILE))
-        keep = residual <= max(cut, 0.05)
+        refined = np.abs(residual) <= FIT_TOLERANCE_M
+        if int(refined.sum()) < 8:
+            break
+        keep = refined
     out = np.full(heights.shape, np.nan, dtype=np.float32)
     out[valid] = residual.astype(np.float32)
     deck = residual[keep]
     return {"residual": out, "coefficients": solution.tolist(),
-            "point_count": int(z.size), "inlier_count": int(keep.sum()),
-            "rmse_m": float(np.sqrt(np.mean(deck ** 2))),
+            "point_count": int(count), "inlier_count": int(keep.sum()),
+            "rmse_m": float(np.sqrt(np.mean(deck ** 2))) if deck.size else 0.0,
             "rank": int(np.linalg.matrix_rank(design[keep]))}
 
 
@@ -240,10 +290,12 @@ def thickness(polygon: Polygon) -> float:
 
 
 def detect(
-    heights: np.ndarray, minx: float, maxy: float, facets: list[Polygon], fits=None
+    heights: np.ndarray, minx: float, maxy: float, facets: list[Polygon], fits=None,
+    above_ground: np.ndarray | None = None,
 ) -> list[dict]:
     """Return superstructure polygons in LV95 metres, with height and class."""
     raised = np.zeros(heights.shape, dtype=np.uint8)
+    dropped = np.zeros(heights.shape, dtype=np.uint8)
     depth = np.zeros(heights.shape, dtype=np.float32)
     kernel = np.ones((3, 3), np.uint8)
     for index, facet in enumerate(facets):
@@ -261,53 +313,68 @@ def detect(
         hit = core & np.isfinite(residual) & (residual > threshold)
         raised[hit] = 1
         depth[hit] = np.maximum(depth[hit], residual[hit])
-    if not raised.any():
+        below = core & np.isfinite(residual) & (residual < -MIN_DROP_M)
+        if above_ground is not None:
+            # Ground inside the outline is not roof at all, whatever its height
+            # relative to the fitted face.
+            below |= core & np.isfinite(above_ground) & (above_ground < MIN_ROOF_HEIGHT_M)
+        dropped[below] = 1
+        depth[below] = np.maximum(depth[below], np.abs(residual[below]))
+    if not raised.any() and not dropped.any():
         return []
     # Close pinholes inside a chimney. Deliberately no opening: a 3x3 erosion
     # deletes a 1 m chimney outright, and the area filter below removes speckle.
     raised = cv2.morphologyEx(raised, cv2.MORPH_CLOSE, kernel)
+    dropped = cv2.morphologyEx(dropped, cv2.MORPH_CLOSE, kernel)
     roof_area = sum(f.area for f in facets) or 1.0
-    contours, _ = cv2.findContours(raised, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     found = []
-    for contour in contours:
-        # Scale simplification to the structure: a fixed epsilon flattens a
-        # 1 m chimney's four-cell contour into a line and loses it entirely.
-        epsilon = min(0.4, 0.02 * cv2.arcLength(contour, True))
-        approx = cv2.approxPolyDP(contour, epsilon, True).reshape(-1, 2)
-        if len(approx) < 3:
-            x, y, w, h = cv2.boundingRect(contour)
-            approx = np.array(
-                [[x, y], [x + w - 1, y], [x + w - 1, y + h - 1], [x, y + h - 1]]
-            )
-        patch = np.zeros(raised.shape, np.uint8)
-        cv2.drawContours(patch, [contour], -1, 1, -1)
-        rises = depth[patch.astype(bool)]
-        rise = float(rises.max()) if rises.size else 0.0
-        ring = [
-            (minx + (c + 0.5) * DSM_STEP_M, maxy - (r + 0.5) * DSM_STEP_M)
-            for c, r in approx
-        ]
-        polygon = Polygon(ring)
-        if not polygon.is_valid:
-            polygon = polygon.buffer(0)
-        # The contour traces cell centres, so it stops half a cell short of the
-        # structure on every side. Grow it back, which also errs on the safe side.
-        polygon = polygon.buffer(DSM_STEP_M / 2, join_style=2)
-        if polygon.geom_type != "Polygon" or not polygon.is_valid:
-            continue
-        area = polygon.area
-        if area < MIN_AREA_M2 or area > roof_area * MAX_AREA_FRACTION:
-            continue
-        if thickness(polygon) < MIN_THICKNESS_M:
-            continue
-        found.append(
-            {
-                "geometry": polygon,
-                "height_m": round(rise, 2),
-                "area_m2": round(area, 2),
-                "kind": "chimney" if area <= CHIMNEY_MAX_AREA_M2 else "other_obstacle",
-            }
-        )
+    for mask, below_roof in ((raised, False), (dropped, True)):
+      if not mask.any():
+          continue
+      contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+      for contour in contours:
+          # Scale simplification to the structure: a fixed epsilon flattens a
+          # 1 m chimney's four-cell contour into a line and loses it entirely.
+          epsilon = min(0.4, 0.02 * cv2.arcLength(contour, True))
+          approx = cv2.approxPolyDP(contour, epsilon, True).reshape(-1, 2)
+          if len(approx) < 3:
+              x, y, w, h = cv2.boundingRect(contour)
+              approx = np.array(
+                  [[x, y], [x + w - 1, y], [x + w - 1, y + h - 1], [x, y + h - 1]]
+              )
+          patch = np.zeros(mask.shape, np.uint8)
+          cv2.drawContours(patch, [contour], -1, 1, -1)
+          rises = depth[patch.astype(bool)]
+          rise = float(rises.max()) if rises.size else 0.0
+          ring = [
+              (minx + (c + 0.5) * DSM_STEP_M, maxy - (r + 0.5) * DSM_STEP_M)
+              for c, r in approx
+          ]
+          polygon = Polygon(ring)
+          if not polygon.is_valid:
+              polygon = polygon.buffer(0)
+          # The contour traces cell centres, so it stops half a cell short of the
+          # structure on every side. Grow it back, which also errs on the safe side.
+          polygon = polygon.buffer(DSM_STEP_M / 2, join_style=2)
+          if polygon.geom_type != "Polygon" or not polygon.is_valid:
+              continue
+          area = polygon.area
+          floor = MIN_DROP_AREA_M2 if below_roof else MIN_AREA_M2
+          ceiling = MAX_DROP_FRACTION if below_roof else MAX_AREA_FRACTION
+          if area < floor or area > roof_area * ceiling:
+              continue
+          if thickness(polygon) < MIN_THICKNESS_M:
+              continue
+          found.append(
+              {
+                  "geometry": polygon,
+                  "height_m": round(rise, 2),
+                  "area_m2": round(area, 2),
+                  "below_roof": below_roof,
+                  "kind": "other_obstacle" if below_roof
+                      else ("chimney" if area <= CHIMNEY_MAX_AREA_M2 else "other_obstacle"),
+              }
+          )
     found.sort(key=lambda o: -o["area_m2"])
     return found[:MAX_OBSTACLES]
 
@@ -319,42 +386,89 @@ async def roof_obstacles(
     return (await roof_model(client, facets, bounds))["obstacles"]
 
 
-async def roof_model(client: httpx.AsyncClient, facets: list[Polygon], bounds) -> dict:
+async def roof_model(client: httpx.AsyncClient, facets: list[Polygon], bounds, properties=None) -> dict:
     """One DSM load/fit shared by obstacle detection and surface packing."""
-    from backend.services.roof_plane import plane_from_fit
+    from backend.services.roof_plane import plane_from_fit, official_plane
+    from backend.services.sunlight_service import analyse_sunlight, RADIUS_M
+    import json
     from backend.services.runtime_cache import elevation
-    key = tuple(f.wkb_hex for f in facets)
+    properties = properties or [{} for _ in facets]
+    key = (tuple(f.wkb_hex for f in facets), json.dumps(properties, sort_keys=True))
     cached = elevation.get(key)
     if cached is not None:
         return cached
     if not facets:
         return {"obstacles": [], "planes": []}
     minx, miny, maxx, maxy = bounds
-    window = (minx - PAD_M, miny - PAD_M, maxx + PAD_M, maxy + PAD_M)
+    window = (minx - RADIUS_M, miny - RADIUS_M, maxx + RADIUS_M, maxy + RADIUS_M)
     try:
         hrefs = await tile_hrefs(client, window)
         if not hrefs:
             raise ElevationUnavailable("No height model published for this location")
         paths = [await cached_tile(client, href) for href in hrefs[:MAX_TILES]]
-        heights, ox, oy = await asyncio.to_thread(mosaic, paths, window)
+        surroundings, sx, sy = await asyncio.to_thread(mosaic, paths, window)
+        surroundings[(surroundings < -100) | (surroundings > 5000)] = np.nan
+        # Terrain, so ground can be told from roof. An official outline can span
+        # a block and take in its courtyard; the surface model alone cannot tell
+        # a flat yard from a flat roof, and the yard is often the larger of the two.
+        ground = None
+        try:
+            terrain_hrefs = await tile_hrefs(client, window, TERRAIN_COLLECTION)
+            if terrain_hrefs:
+                terrain_paths = [
+                    await cached_tile(client, href)
+                    for href in terrain_hrefs[:MAX_TILES]
+                ]
+                ground, _, _ = await asyncio.to_thread(mosaic, terrain_paths, window)
+                ground[(ground < -100) | (ground > 5000)] = np.nan
+        except (httpx.HTTPError, ValueError, OSError, ElevationUnavailable):
+            ground = None
+        left = max(0, int(math.floor((minx-PAD_M-sx)/DSM_STEP_M)))
+        right = min(surroundings.shape[1], int(math.ceil((maxx+PAD_M-sx)/DSM_STEP_M)))
+        top = max(0, int(math.floor((sy-maxy-PAD_M)/DSM_STEP_M)))
+        bottom = min(surroundings.shape[0], int(math.ceil((sy-miny+PAD_M)/DSM_STEP_M)))
+        heights = surroundings[top:bottom, left:right]
+        ox, oy = sx+left*DSM_STEP_M, sy-top*DSM_STEP_M
+        above_ground = None
+        if ground is not None and ground.shape == surroundings.shape:
+            above_ground = heights - ground[top:bottom, left:right]
         def process():
             rows, cols = np.indices(heights.shape)
             xs, ys = ox + (cols + .5)*DSM_STEP_M, oy - (rows + .5)*DSM_STEP_M
-            fits = []
-            for facet in facets:
+            fits, planes = [], []
+            for facet, props in zip(facets, properties):
                 # Rasterised boundary cells may sample the ground or an adjacent
                 # pitch. Fit actual cell centres half a metre inside the face.
                 core = facet.buffer(-DSM_STEP_M)
                 mask = contains_xy(core, xs, ys)
                 if int(mask.sum()) < 24:
                     mask = contains_xy(facet, xs, ys)
+                if above_ground is not None:
+                    on_roof = mask & (above_ground >= MIN_ROOF_HEIGHT_M)
+                    # Only trust the terrain cut when it still leaves a face.
+                    if int(on_roof.sum()) >= 24:
+                        mask = on_roof
                 fitted = fit_plane(heights, mask)
+                measured = plane_from_fit(facet, fitted, ox, oy)
+                valid = mask & np.isfinite(heights)
+                plane = official_plane(facet, props, measured, (xs[valid], ys[valid], heights[valid]))
+                planes.append(plane)
+                if plane.source == "sonnendach" and plane.describe()["height_is_absolute"]:
+                    a = -plane.normal[0]/plane.normal[2]
+                    b = -plane.normal[1]/plane.normal[2]
+                    residual = heights-(plane.origin[2]+a*(xs-plane.origin[0])+b*(ys-plane.origin[1]))
+                    fitted = {"residual": np.where(mask, residual, np.nan)}
                 fits.append(fitted)
-            planes = [plane_from_fit(f, fit, ox, oy) for f, fit in zip(facets, fits)]
             for plane in planes:
                 plane.diagnostics["height_tiles"] = hrefs[:MAX_TILES]
                 plane.diagnostics["sample_step_m"] = DSM_STEP_M
-            return {"obstacles": detect(heights, ox, oy, facets, fits), "planes": planes}
+            terrain = {"heights": surroundings, "minx": sx, "maxy": sy, "step": DSM_STEP_M}
+            sunlight = []
+            for facet, plane in zip(facets, planes):
+                lon, lat = TO_WGS84.transform(*facet.centroid.coords[0])
+                sunlight.append(analyse_sunlight(facet, plane, terrain, lat, lon))
+            return {"obstacles": detect(heights, ox, oy, facets, fits, above_ground),
+                    "planes": planes, "sunlight": sunlight}
         return elevation.put(key, await asyncio.to_thread(process))
     except (httpx.HTTPError, ValueError, OSError) as exc:
         raise ElevationUnavailable("The height model could not be reached") from exc

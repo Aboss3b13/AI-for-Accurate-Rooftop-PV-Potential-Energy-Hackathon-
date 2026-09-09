@@ -13,7 +13,7 @@ class PanelConfig(BaseModel):
 
 
 class MarkedObject(BaseModel):
-    source: Literal["manual", "map", "elevation", "image"] = "manual"
+    source: Literal["manual", "map", "elevation", "image", "terrain"] = "manual"
     polygon: list[Point] = Field(min_length=3, max_length=200)
     kind: Literal["existing_pv", "chimney", "skylight", "other_obstacle"] = (
         "other_obstacle"
@@ -32,6 +32,12 @@ class AnalysisSettings(BaseModel):
     building_override: list[Point] | None = Field(None, min_length=3, max_length=200)
     objective: Literal["capacity", "energy"] = "capacity"
     max_panels: int | None = Field(None, ge=1, le=10000)
+    layout_policy: Literal["recommended", "physical"] = "recommended"
+    minimum_irradiation: float = Field(800, ge=0, le=2000)
+    minimum_sun_access: float = Field(.6, ge=0, le=1)
+    minimum_array_panels: int = Field(4, ge=1, le=30)
+    annual_consumption_kwh: float | None = Field(None, ge=0, le=10_000_000)
+    existing_generation_kwh: float | None = Field(None, ge=0, le=10_000_000)
     roof: list[Point] = Field(min_length=3, max_length=200)
     pixels_per_metre: float | None = Field(None, ge=0.5, le=2000)
     approximate_roof_width: float = Field(12, ge=1, le=200)

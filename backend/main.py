@@ -19,14 +19,14 @@ from backend.services.surface_analysis import analyse_surfaces
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
-app = FastAPI(title="SolarFit", version="1.1.0")
+app = FastAPI(title="SolarFit", version="1.2.0")
 app.include_router(map_router)
 Image.MAX_IMAGE_PIXELS = 25_000_000
 
 
 @app.get("/api/health")
 def health():
-    return {"app": "SolarFit", "version": "1.1.0", "geometry": "individual_roof_surfaces", "status": "ok", "model": yolo.status()}
+    return {"app": "SolarFit", "version": "1.2.0", "geometry": "official_roof_surfaces_with_sunlight_screening", "status": "ok", "model": yolo.status()}
 
 
 def analyse(image, settings):

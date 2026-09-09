@@ -24,9 +24,35 @@ export type Panel = {
   gap: number;
 };
 export type Analysis = {
+  shaded_area?: Geometry;
+  assessment?: {
+    status: string; title: string; layout_policy: string;
+    physical_panel_capacity: number; proposed_panel_count: number;
+    remaining_annual_target_kwh: number | null; annual_target_coverage_percent: number | null;
+    demand_note: string; factors: { factor: string; basis: string }[];
+  };
   faces?: RoofFace[];
   map_overlay?: { type: "FeatureCollection"; features: { type: "Feature"; geometry: Geometry; properties: { layer: string; face_id: string; irradiation_kwh_m2_year?: number | null } }[] };
   energy_available?: boolean;
+  sonnendach?: {
+    official_area_m2: number;
+    official_annual_energy_kwh: number | null;
+    measured_surface_m2: number;
+    definition_difference_m2: number | null;
+    fitted_module_area_m2: number;
+    fitted_annual_energy_kwh: number | null;
+    area_shortfall_m2: number | null;
+    area_shortfall_percent: number | null;
+    energy_shortfall_percent: number | null;
+    breakdown_m2: {
+      faces_screened_out: number;
+      existing_pv: number;
+      roof_obstacles: number;
+      shaded: number;
+      margins_and_module_fit: number;
+    };
+    basis: string;
+  };
   objective_note?: string;
   objective_comparison?: Record<string, { panel_count: number; additional_kwp: number; annual_energy_kwh: number | null }>;
   roof: Geometry;
@@ -69,6 +95,11 @@ export type Analysis = {
 };
 
 export type RoofFace = {
+  dimensions: { length_m: number; width_m: number };
+  sunlight: { available: boolean; reason?: string; radius_m?: number;
+    coverage_fraction?: number; mean_direct_sun_access?: number | null; winter_direct_sun_access?: number | null };
+  assessment: { status: string; reasons: string[]; cautions: string[] };
+  physical_panel_count: number;
   id: string;
   geometry_source: string;
   surface_area_m2: number;

@@ -11,6 +11,8 @@ from backend.services.geometry_service import build_usable, polygon_from_points
 from backend.services.panel_optimizer import optimise_panels
 from backend.services.energy_service import capacity
 from backend.services.confidence_service import summarise_confidence
+from backend.services.sunlight_service import sunlight_exclusions, public_sunlight
+from backend.services.suitability_service import assess_face, dimensions, grouped_panels, building_assessment, sonnendach_comparison
 
 TO_WGS84 = Transformer.from_crs(2056, 4326, always_xy=True)
 
@@ -133,27 +135,64 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
         # Existing alignment control acts as an offset from automatic face alignment.
         angle -= settings.angle - context["default_angle"]
         diagnostics = plane.describe()
-        panels, orientation = optimise_panels(usable, 1, settings.panel, angle, diagnostics)
+        physical_panels, orientation = optimise_panels(usable, 1, settings.panel, angle, diagnostics)
         solar = solar_data(face["properties"], settings.annual_specific_yield)
+        sunlight = face.get("sunlight", {"available": False, "reason": "No surrounding height analysis."})
+        assessment = assess_face(plane, solar, sunlight, settings)
+        shaded = sunlight_exclusions(sunlight, local, settings.minimum_sun_access)
+        panels = physical_panels
+        if settings.layout_policy == "recommended":
+            if not assessment["eligible"]:
+                usable = Polygon()
+                panels = []
+            elif not shaded.is_empty:
+                usable = usable.difference(shaded)
+                panels, orientation = optimise_panels(usable, 1, settings.panel, angle, diagnostics)
+            panels = grouped_panels(panels, settings.panel.gap, settings.minimum_array_panels)
+            if not panels and assessment["eligible"] and physical_panels:
+                assessment["status"] = "not_recommended"
+                assessment["reasons"].append("After shade screening, no sufficiently large connected module group remains.")
+        excluded = local.difference(usable)
+        if face["id"] in settings.face_overrides and sunlight.get("available"):
+            assessment["cautions"].append("Sunlight was sampled on the original face; manually extended areas require a fresh map selection.")
+            if assessment["status"] == "suitable":
+                assessment["status"] = "needs_review"
         diagnostics.update(overlapping_projection_removed_m2=overlap, alignment_deg=angle)
         faces.append({"id": face["id"], "plane": plane, "world": world, "local": local,
                       "objects": local_objects, "usable": usable, "excluded": excluded,
+                      "shaded": shaded, "sunlight": public_sunlight(sunlight), "assessment": assessment,
+                      "dimensions": dimensions(local), "physical_panel_count": len(physical_panels),
                       "panels": panels, "orientation": orientation, "diagnostics": diagnostics, "solar": solar,
                       "official_pitch_deg": face["properties"].get("neigung"),
                       "official_azimuth_deg": ((float(face["properties"]["ausrichtung"]) + 180) % 360)
                           if face["properties"].get("ausrichtung") is not None else None})
-    available = all(f["solar"]["specific_yield_kwh_kwp"] is not None for f in faces) and bool(faces)
+    available = (all(f["solar"]["specific_yield_kwh_kwp"] is not None for f in faces if f["panels"])
+                 and any(f["solar"]["specific_yield_kwh_kwp"] is not None for f in faces))
     if settings.objective == "energy" and not available:
         raise ValueError("Annual-energy optimisation is unavailable: some faces have no irradiation or supplied yield.")
     original_counts = {f["id"]: len(f["panels"]) for f in faces}
+    target = (max(0., settings.annual_consumption_kwh-settings.existing_generation_kwh)
+              if settings.annual_consumption_kwh is not None and settings.existing_generation_kwh is not None else None)
     def allocation(objective):
         ordered_faces = sorted(faces, key=lambda f: (
-            -(f["solar"]["specific_yield_kwh_kwp"] or 0) if objective == "energy" else -len(f["panels"]), f["id"]))
+            -(f["solar"]["specific_yield_kwh_kwp"] or 0) if objective == "energy" or target is not None else -len(f["panels"]), f["id"]))
         remaining = settings.max_panels if settings.max_panels is not None else sum(original_counts.values())
+        energy_remaining = target if available or target == 0 else None
         counts = {}
         for f in ordered_faces:
-            counts[f["id"]] = min(remaining, original_counts[f["id"]])
+            wanted = min(remaining, original_counts[f["id"]])
+            module_energy = settings.panel.power/1000 * (f["solar"]["specific_yield_kwh_kwp"] or 0)
+            if energy_remaining is not None:
+                needed = math.ceil(max(0., energy_remaining)/module_energy) if module_energy else 0
+                if needed and settings.layout_policy == "recommended":
+                    needed = max(needed, settings.minimum_array_panels)
+                wanted = min(wanted, needed)
+            if settings.layout_policy == "recommended":
+                wanted = len(grouped_panels(f["panels"][:wanted], settings.panel.gap, settings.minimum_array_panels))
+            counts[f["id"]] = wanted
             remaining -= counts[f["id"]]
+            if energy_remaining is not None:
+                energy_remaining -= wanted*module_energy
         return counts
     comparisons = {}
     for objective in ["capacity", "energy"] if available else ["capacity"]:
@@ -180,6 +219,7 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
         feature(f["world"], "roof", f["id"], **f["solar"])
         feature(plane.world_geometry(f["usable"]), "usable", f["id"])
         feature(plane.world_geometry(f["excluded"]), "excluded", f["id"])
+        feature(plane.world_geometry(f["shaded"]), "shade", f["id"])
         for obj in f["objects"]:
             feature(plane.world_geometry(Polygon(obj["polygon"])), "pv" if obj["kind"] == "existing_pv" else "obstacles", f["id"])
         for ring in f["panels"]:
@@ -187,6 +227,8 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
             feature(world_panel, "panels", f["id"])
             image_panels.append(list(transform(geo.pixel, world_panel).exterior.coords)[:-1])
         public_faces.append({"id": f["id"], **stats, "geometry_source": plane.source,
+            "dimensions": f["dimensions"], "sunlight": f["sunlight"], "assessment": f["assessment"],
+            "physical_panel_count": f["physical_panel_count"],
             "pitch_deg": f["diagnostics"]["pitch_deg"] if plane.source != "projected_2d" else None,
             "azimuth_deg": f["diagnostics"]["azimuth_deg"] if plane.source != "projected_2d" else None,
             "official_pitch_deg": f["official_pitch_deg"], "official_azimuth_deg": f["official_azimuth_deg"],
@@ -201,11 +243,15 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
         warnings.append("Boundary corrections reuse the original fitted planes. Recheck pitch when moving a boundary onto a different surface.")
     if clip is not None:
         warnings.append("The whole-building edit crops official faces; extensions outside them require a separately drawn map roof.")
-    warnings.append("Planning estimate: DSM and imagery dates may differ. Structure, local shadows and installation compliance are not assessed.")
+    warnings.append("Planning estimate: nearby shade is sampled from a static DSM, not an hourly weather simulation. Structure, snow/wind loads and installation compliance remain unassessed.")
+    if target is not None and target > 0 and not available:
+        warnings.append("The annual demand target cannot be applied without production estimates for the proposed faces.")
     if available:
         warnings.append("Annual energy uses face-average irradiation with an assumed 80% performance ratio, or your supplied yield; it is not a production guarantee.")
     surface = sum(f["local"].area for f in faces)
     count = len(image_panels)
+    assessment = building_assessment(settings, faces, count, comparisons[settings.objective]["annual_energy_kwh"],
+                                     sum(f["physical_panel_count"] for f in faces))
     display_objects = []
     outline = unary_union([f["world"] for f in faces])
     for obj in merged:
@@ -219,9 +265,14 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
             "existing_pv": [o for o in display_objects if o["kind"] == "existing_pv"],
             "obstacles": [o for o in display_objects if o["kind"] != "existing_pv"],
             "faces": public_faces, "map_overlay": {"type": "FeatureCollection", "features": features},
+            "assessment": assessment,
+            "shaded_area": mapping(transform(geo.pixel, unary_union([f["plane"].world_geometry(f["shaded"]) for f in faces]))),
             "objective": settings.objective, "energy_available": available,
+            "sonnendach": sonnendach_comparison(
+                context["faces"], faces, settings,
+                comparisons[settings.objective]["annual_energy_kwh"], count),
             "objective_comparison": comparisons,
-            "objective_note": "Both objectives fill all faces without a panel limit. With a limit, energy prioritises higher-yield faces; capacity fills larger layouts first.",
+            "objective_note": "Suitability screening precedes packing. Energy prioritises higher-yield faces under a panel limit. An entered annual demand target also limits the layout; without a limit both objectives use the same eligible space.",
             "model": model, "warnings": list(dict.fromkeys(warnings)), "confidence": summarise_confidence(display_objects), "mode": settings.mode,
             "statistics": {"existing_pv_regions": sum(o["kind"] == "existing_pv" for o in display_objects),
                 "additional_panel_count": count, **capacity(count, settings.panel.power),

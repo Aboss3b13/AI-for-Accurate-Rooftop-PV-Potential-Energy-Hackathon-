@@ -11,6 +11,23 @@ import sys
 import shutil
 import subprocess
 
+SHARE = "--ngrok" in sys.argv
+TUNNEL_PROCESSES = []
+
+
+def open_app(url):
+    if SHARE:
+        from scripts.ngrok_share import share
+        try:
+            url, process = share()
+            if process:
+                TUNNEL_PROCESSES.append(process)
+            print("SolarFit public URL: " + url, flush=True)
+        except RuntimeError as exc:
+            print(str(exc), flush=True)
+    if "--no-browser" not in sys.argv:
+        webbrowser.open(url)
+
 ROOT = Path(__file__).resolve().parents[1]
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT))
@@ -21,7 +38,7 @@ def open_when_ready(url):
         try:
             with urllib.request.urlopen(url + "/api/health", timeout=1) as response:
                 if response.status == 200:
-                    webbrowser.open(url)
+                    open_app(url)
                     return
         except Exception:
             time.sleep(0.5)
@@ -51,7 +68,13 @@ if __name__ == "__main__":
 
             data = json.load(response)
             if data.get("app") == "SolarFit":
-                webbrowser.open(f"http://127.0.0.1:{port}")
+                open_app(f"http://127.0.0.1:{port}")
+                if TUNNEL_PROCESSES:
+                    print("Keep this window open to share SolarFit. Ctrl+C stops this tunnel.")
+                    try:
+                        TUNNEL_PROCESSES[0].wait()
+                    except KeyboardInterrupt:
+                        TUNNEL_PROCESSES[0].terminate()
                 sys.exit(0)
     except Exception:
         pass
@@ -67,4 +90,9 @@ if __name__ == "__main__":
     print(
         "SolarFit is starting at http://127.0.0.1:8000. Keep this window open. Ctrl+C stops it."
     )
-    uvicorn.run("backend.main:app", host="127.0.0.1", port=port, log_level="info")
+    try:
+        uvicorn.run("backend.main:app", host="127.0.0.1", port=port, log_level="info")
+    finally:
+        for process in TUNNEL_PROCESSES:
+            if process.poll() is None:
+                process.terminate()

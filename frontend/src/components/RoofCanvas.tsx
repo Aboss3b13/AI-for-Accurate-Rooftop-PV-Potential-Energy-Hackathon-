@@ -16,6 +16,7 @@ export const layerNames = {
   safety: "Safety exclusions",
   usable: "Usable area",
   panels: "Proposed panels",
+  shade: "Seasonal shade risk",
 };
 export type Layers = Record<keyof typeof layerNames, boolean>;
 const points = (p: Point[]) => p.map((x) => x.join(",")).join(" ");
@@ -123,6 +124,7 @@ export default function RoofCanvas({
               fillRule="evenodd"
             />
           )}
+          {result?.shaded_area && layers.shade && <path d={path(result.shaded_area)} fill="#8061b8" fillOpacity={0.38} stroke="#644592" strokeWidth={1} fillRule="evenodd" />}
           {layers.existing &&
             (
               result?.existing_pv ||

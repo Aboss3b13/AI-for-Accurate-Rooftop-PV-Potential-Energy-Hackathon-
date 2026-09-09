@@ -13,6 +13,7 @@ import {
   Undo2,
 } from "lucide-react";
 import Help from "./Help";
+import { api } from "../http";
 import type { Analysis } from "../types";
 import { layerNames, type Layers } from "./RoofCanvas";
 import type { MapCapture, MapPick } from "../mapTypes";
@@ -208,9 +209,9 @@ export default function SatelliteMap({
     if (!m) return;
     overlays.current?.remove();
     if (!result?.map_overlay || drawing) return;
-    const keys: Record<string, keyof Layers> = { roof: "roof", pv: "existing", obstacles: "obstacles", excluded: "safety", usable: "usable", panels: "panels" };
-    const colors: Record<string, string> = { roof: "#75cfff", pv: "#54a6ff", obstacles: "#ff947b", excluded: "#ffc15e", usable: "#8de4b0", panels: "#d5ff8f" };
-    const order: Record<string, number> = { roof: 0, usable: 1, excluded: 2, pv: 3, obstacles: 4, panels: 5 };
+    const keys: Record<string, keyof Layers> = { roof: "roof", pv: "existing", obstacles: "obstacles", excluded: "safety", usable: "usable", panels: "panels", shade: "shade" };
+    const colors: Record<string, string> = { roof: "#75cfff", pv: "#54a6ff", obstacles: "#ff947b", excluded: "#ffc15e", usable: "#8de4b0", panels: "#d5ff8f", shade: "#8061b8" };
+    const order: Record<string, number> = { roof: 0, usable: 1, excluded: 2, pv: 3, obstacles: 4, panels: 5, shade: 2 };
     const features = result.map_overlay.features.filter(f => layers[keys[f.properties.layer]] && (f.properties.layer !== "roof" || solarLayer))
       .sort((a, b) => order[a.properties.layer] - order[b.properties.layer]);
     overlays.current = L.geoJSON(features as any, {
@@ -235,7 +236,7 @@ export default function SatelliteMap({
     setSearching(true);
     setSearchError("");
     try {
-      const response = await fetch(
+      const response = await api(
         "/api/map/search?q=" + encodeURIComponent(query.trim()),
         { signal: controller.signal },
       );

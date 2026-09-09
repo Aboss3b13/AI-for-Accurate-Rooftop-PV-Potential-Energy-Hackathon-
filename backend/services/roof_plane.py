@@ -63,7 +63,7 @@ class RoofPlane:
                 "surface_area_factor": 1 / float(self.normal[2]),
                 "local_to_world": matrix.tolist(),
                 "world_to_local": np.linalg.inv(matrix).tolist(),
-                "height_is_absolute": self.source == "swisssurface3d"}
+                "height_is_absolute": self.diagnostics.get("height_is_absolute", self.source == "swisssurface3d")}
 
 
 def plane_from_fit(geometry, fitted, minx, maxy, step=.5):
@@ -79,3 +79,56 @@ def plane_from_fit(geometry, fitted, minx, maxy, step=.5):
             return RoofPlane.from_slopes(x, y, z, a, b, "swisssurface3d", fallback)
     fallback["fallback_reason"] = "Insufficient or unreliable DSM plane; packing in projected metres."
     return RoofPlane.from_slopes(x, y, diagnostics=fallback)
+
+
+def official_plane(geometry, properties, measured=None, samples=None):
+    """Use surveyed Sonnendach angles instead of flattening a failed DSM fit.
+
+    Official aspect is south=0, east=-90. DSM anchors height independently:
+    it must not change roof dimensions just because a dormer dominates samples.
+    """
+    try:
+        pitch = float(properties["neigung"])
+        aspect = float(properties.get("ausrichtung", 0) if pitch < .1 else properties["ausrichtung"])
+        if not math.isfinite(pitch + aspect) or not (0 <= pitch < 85 and -180 <= aspect <= 180):
+            raise ValueError("Invalid official angles")
+    except (KeyError, TypeError, ValueError):
+        return measured or RoofPlane.from_slopes(*geometry.centroid.coords[0])
+    azimuth = math.radians((aspect + 180) % 360)
+    slope = math.tan(math.radians(pitch))
+    a, b = -slope*math.sin(azimuth), -slope*math.cos(azimuth)
+    x, y = geometry.centroid.coords[0]
+    details = {"angle_source": "Sonnendach official roof face", "height_is_absolute": False,
+               "point_count": 0, "geometry_conflict": False,
+               "roof_record_updated": properties.get("datum_aenderung")}
+    try:
+        expected = float(properties["flaeche"])*geometry.area/float(properties.get("_source_projected_area", geometry.area))
+        derived = geometry.area/math.cos(math.radians(pitch))
+        if expected > 0 and math.isfinite(expected):
+            details.update(reported_surface_area_m2=expected, derived_surface_area_m2=derived,
+                           area_disagreement_fraction=abs(derived-expected)/expected)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        pass
+    z = 0.
+    if measured:
+        details.update({"dsm_fit": measured.describe(), "point_count": measured.diagnostics.get("point_count", 0)})
+        dsm = measured.describe()
+        difference = abs(dsm["pitch_deg"] - pitch)
+        az_difference = abs(((dsm["azimuth_deg"] or 0) - math.degrees(azimuth) + 180) % 360 - 180)
+        details.update(pitch_disagreement_deg=difference, azimuth_disagreement_deg=az_difference)
+        details["geometry_conflict"] = bool(measured.source == "swisssurface3d"
+            and details["point_count"] >= 80 and (difference > 15 or (pitch > 10 and dsm["pitch_deg"] > 10 and az_difference > 35)))
+    if samples is not None:
+        xs, ys, heights = samples
+        offsets = heights - a*(xs-x) - b*(ys-y)
+        offsets = offsets[np.isfinite(offsets)]
+        details["point_count"] = int(offsets.size)
+        if offsets.size >= 12:
+            z = float(np.percentile(offsets, 25))
+            residual = offsets - z
+            deck = residual[np.abs(residual) <= .35]
+            details.update(height_anchor_m=z, height_inlier_count=int(deck.size),
+                           height_rmse_m=float(np.sqrt(np.mean(deck**2))) if deck.size else None)
+            details["height_is_absolute"] = bool(deck.size >= 12 and deck.size/offsets.size >= .4)
+    details["plane_equation"] = {"a_dz_dx": a, "b_dz_dy": b, "z_at_origin": z}
+    return RoofPlane.from_slopes(x, y, z, a, b, "sonnendach", details)

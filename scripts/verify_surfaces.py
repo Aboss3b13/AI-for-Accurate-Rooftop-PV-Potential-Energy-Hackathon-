@@ -50,7 +50,8 @@ async def main():
             report = {"place": name, "latitude": point[0], "longitude": point[1],
                 "capture_seconds": round(capture_seconds, 3), "warm_total_seconds": round(time.perf_counter()-start, 3),
                 "model": result["model"], "statistics": result["statistics"],
-                "faces": [{k: f[k] for k in ["id", "pitch_deg", "official_pitch_deg", "geometry_source", "surface_area_m2", "additional_panel_count", "solar", "diagnostics"]} for f in result["faces"]]}
+                "assessment": result.get("assessment"),
+                "faces": [{k: f[k] for k in ["id", "pitch_deg", "official_pitch_deg", "geometry_source", "surface_area_m2", "additional_panel_count", "solar", "diagnostics", "sunlight", "assessment", "dimensions"]} for f in result["faces"]]}
             reports.append(report)
             print(json.dumps({k: v for k, v in report.items() if k != "faces"}), flush=True)
     Path(".cache").mkdir(exist_ok=True)

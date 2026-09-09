@@ -12,6 +12,39 @@ Not "roof area ÷ panel area". SolarFit lays out **real rectangular panels** on 
 
 ---
 
+## The challenge, and how SolarFit answers it
+
+> Sonnendach estimates rooftop PV potential, but it does not account for panels
+> already installed, chimneys, skylights, dormers or other obstacles. Solutions
+> should provide **more realistic estimates of installable rooftop solar capacity**.
+> — [Energy Data Hackdays: AI for Accurate Rooftop PV Potential](https://www.energydatahackdays.ch/challenges/ai-for-accurate-rooftop-pv-potential)
+
+| What the challenge asks | Where SolarFit does it |
+|---|---|
+| Analyse swisstopo aerial imagery with computer vision | YOLO11-seg on the live SWISSIMAGE capture, plus a colour rule for roof windows |
+| Detect **existing PV** | Trained on Swiss PV masks; existing arrays are excluded from the new layout |
+| Segment **rooftop obstacles** | Chimneys and dormers measured from swissSURFACE3D; roof windows from the photo |
+| Subtract them from Sonnendach's potential | Every face is screened, then obstacles, shade and margins are removed |
+| Produce a **realistic installable capacity** | Real modules are packed into what is left, and reported in kWp and kWh/year |
+
+The headline output is the comparison itself — the official figure beside the
+one you could actually build, and a line-by-line account of the difference:
+
+```text
+Sonnendach says          756.5 m²      120,089 kWh/year
+Actually installable      65.9 m²       14,598 kWh/year     −88%
+
+Where the roof goes
+  Faces not worth covering        359.3 m²   north-facing or too shaded
+  Chimneys, windows, structures    35.5 m²
+  In shade too much of the day      8.1 m²
+  Edge margins & module fit       287.4 m²
+```
+
+Measured on a real Zurich building. Sonnendach rates the whole roof; more than
+half of it faces north or sits under 800 kWh/m², and what remains still has to
+hold rectangular modules around six chimneys and twenty roof windows.
+
 ## Why it's different
 
 | Most estimators | SolarFit |
@@ -24,6 +57,15 @@ Not "roof area ÷ panel area". SolarFit lays out **real rectangular panels** on 
 | Quote a confident single number | Shows Conservative / Recommended / Maximum, and says plainly what it does not know |
 
 Built for the [AI for Accurate Rooftop PV Potential](https://www.energydatahackdays.ch/challenges/ai-for-accurate-rooftop-pv-potential) challenge, Energy Data Hackdays 2026.
+
+---
+
+## Try it without installing anything
+
+A live instance is tunnelled at
+**<https://bernadette-nonfeeling-transparently.ngrok-free.dev>** while the
+machine hosting it is running. ngrok's free tier shows a one-off warning page
+first; click *Visit Site*. Run `START_SOLARFIT_NGROK.bat` to publish your own.
 
 ---
 
@@ -59,6 +101,18 @@ When it's ready your browser opens at **http://127.0.0.1:8000** and you can [sta
 **Later starts reuse the installed environment.** The launcher automatically rebuilds updated frontend source. Map imagery and geodata need internet; AI runs locally.
 
 > Keep the black console window open while you use SolarFit — that window *is* the app. Press Ctrl+C in it, or just close it, to stop.
+
+### Share through ngrok
+
+Double-click **`START_SOLARFIT_NGROK.bat`**. It starts the same production app on port 8000, reuses an existing tunnel when possible, and opens its HTTPS URL. The normal `START_SOLARFIT.bat` remains available for local use.
+
+This installation uses **https://bernadette-nonfeeling-transparently.ngrok-free.dev/**. If setting up another computer/account, install ngrok and configure your own authtoken once using ngrok's setup instructions. Set `SOLARFIT_PUBLIC_URL` in `.env` to your assigned domain. Tokens are never stored in this repository. An equivalent manual command, after starting SolarFit, is:
+
+```powershell
+ngrok http --url=https://bernadette-nonfeeling-transparently.ngrok-free.dev http://127.0.0.1:8000
+```
+
+Keep the app and tunnel running. The frontend and `/api` use the same origin, so remote visitors do not call their own localhost and no Vite host bypass is needed. Ngrok's free-tier browser notice may appear on a first visit; continue through it. AI still runs on this computer; the tunnel forwards visitors' requests to it.
 
 ### If something goes wrong
 
@@ -107,6 +161,18 @@ Use this when the building isn't in the official map, when you only want part of
 ### Your own image instead
 
 Prefer a screenshot? **Upload roof**, draw the outline, then use **Scale** to click both ends of something whose length you know and type that length — otherwise the app has no idea how big anything is, and it will say so.
+
+### Logical placement, shade and whether more panels are needed
+
+Map analyses now default to **sunlight and practical-array screening**. The editor shows a building assessment and per-face reasons, not just a capacity number. It checks official roof dimensions, pitch, orientation and irradiation; existing PV and obstacles; and nearby buildings, trees and terrain from the DSM. Poorly suited faces and heavily shaded regions can produce **zero** recommended panels. The physical capacity before screening is shown separately.
+
+The prototype's default rules exclude unknown/conflicting geometry, pitch above 65 degrees, annual irradiation below 800 kWh/m², sampled direct-sun access below 60%, and isolated groups smaller than four modules. Calculated surface area is checked against the published roof area, with discrepancies above 20% requiring review. These are explicit screening choices, not building regulations or a profitability guarantee. Turn off **Screen for sunlight and practical panel groups** to inspect the physical-fit preview; this is clearly labelled as not an installation recommendation.
+
+The purple **Seasonal shade risk** layer shows roof cells below the sunlight threshold. Rays inspect the DSM within 120 m in 5-degree directions. Solar position follows [NOAA's equations](https://gml.noaa.gov/grad/solcalc/solareqns.PDF), sampled every half hour on twelve representative days. Per-face annual and winter direct-sun access describe geometric exposure, not annual electricity loss. Missing height coverage is **unknown**, never automatically clear. Raster resolution, fixed vegetation, source dates and the 120 m radius limit the analysis; distant terrain and climate are represented by official irradiation where available. SolarFit does not multiply the existing shaded irradiation by this score, which would count shading twice.
+
+Under **Size to electricity use**, enter annual electricity consumption and existing annual PV production (0 if none). Both are needed: existing PV masks cannot reveal actual production. The layout then targets the remaining annual energy demand, preferring higher-yield faces while retaining practical groups. If the entered existing production already meets that annual target, no additional modules are proposed for it. Without those inputs, the app says that demand is unknown. Annual balance is not hourly self-sufficiency, and surplus export may still be a separate goal.
+
+The assessment also lists what remains unverified: snow/wind and structural loads, roof condition, grid connection, ownership, tariffs, installation cost and payback. Those factors cannot be established from aerial geometry alone.
 
 ---
 
@@ -159,17 +225,17 @@ SolarFit does not use AI to guess geometry that official Swiss geodata can provi
 
 ### Physical roof geometry
 
-`roof_plane.py` provides an orthonormal basis `(u, v, normal)` anchored near each face in LV95 metres. DSM heights use LN02. A robust lower-deck fit rejects elevated structures; the same fit feeds obstacle detection and packing. Samples use 0.5 m cell centres, preferably at least 0.5 m inside a face to avoid ground/ridge contamination. Fits require enough samples, full rank, deck RMSE at most 0.25 m, pitch below 75 degrees, and agreement within 15 degrees of official pitch when available. These are prototype quality gates, not survey certification.
+`roof_plane.py` provides an orthonormal basis `(u, v, normal)` anchored near each face in LV95 metres. **Official Sonnendach pitch and azimuth define the surface when valid**, rather than flattening the roof when a DSM fit fails. Interior DSM samples robustly anchor its absolute LN02 height and check agreement. Strong discrepancies are flagged for review. Without official angles, the existing robust DSM fit remains available: it needs enough points, full rank, deck RMSE at most 0.25 m and pitch below 75 degrees. Samples use 0.5 m cell centres, preferably at least 0.5 m inside the face. These are prototype quality gates, not survey certification.
 
 World XY points are lifted to their fitted plane and expressed as local `(u, v)` metres. Surface area is calculated from that polygon; `projected_area / cos(pitch)` provides an independent check. Existing `build_usable` and `optimise_panels` run with scale **1**, so panel sizes, gaps and buffers are all measured along the roof. Panel corners are then transformed back to LV95, WGS84 for Leaflet, and pixels for the retained image editor. The grid alignment control applies an offset from each face's automatic alignment.
 
 Disconnected faces stay in the capture and result. Overlapping projections are assigned to the higher fitted face before packing to prevent panels under another roof. Detections crossing a ridge are clipped into each face. Overlapping evidence is unioned, with PV classification taking precedence over a reflection-only skylight guess; contributing sources remain in the export. Detection regions are not individual installed-module counts.
 
-If a fit is unreliable, that face uses official **projected 2D geometry**, with an explicit warning, unknown measured pitch and separate official pitch. Uploads remain calibrated 2D. A hand-drawn map outline is treated as one face: draw different pitches separately. Edits reuse the original plane; changing the physical surface requires a fresh map selection.
+If neither official angles nor a reliable DSM plane are available, the face keeps **projected 2D geometry** for physical previews and is withheld from recommended placement. A valid official plane can still be used without absolute height, but nearby shading is then unverified. Uploads remain calibrated 2D. A hand-drawn map outline is treated as one face: draw different pitches separately. Edits reuse the original plane and sunlight samples; extending onto a different physical surface requires a fresh map selection.
 
 ### Energy objectives
 
-**Maximum capacity** fills available layouts. **Maximum annual energy** prioritises higher-yield faces when a panel limit is supplied. With no limit, all positive-yield panels contribute production, so both objectives choose the same full layout; the app says so. With identical modules and a panel limit, capacity ties are resolved by filling larger layouts first, while energy uses yield order. Comparison cards show the actual allocations, not illustrative numbers.
+Both objectives operate after suitability screening. **Maximum capacity** fills eligible layouts. **Maximum annual energy** prioritises higher-yield faces under a panel limit. Without a limit or demand target, both use the same eligible space. An entered annual demand target also limits the layout and prioritises yield. Comparison cards show actual allocations, not illustrative numbers.
 
 Sonnendach `mstrahlung` is annual face-average irradiation in kWh/m^2, not electrical yield. SolarFit derives a planning yield as `mstrahlung * 0.80` kWh/kWp/year, using the performance ratio in the [official BFE data model, pp. 11-12](https://pubdb.bfe.admin.ch/fr/publication/download/9665). New annual electricity is `new kWp * specific yield`. The selected module's rating determines capacity. Face-average irradiation includes the source model's shading, but SolarFit does not recompute local shadows or electrical losses. A user-supplied yield overrides this estimate for all faces. No irradiation means no invented energy value. Suitability classes and irradiation can also be inspected as a map layer.
 
@@ -350,7 +416,7 @@ TRAIN_MODEL.bat        Separate optional training run
 
 ## Practical limitations and next steps
 
-This is a **planning estimate, not a construction plan**. Official geometry is not installation-survey precision; imagery, roof records and elevation may have different acquisition dates. Reliable planes model physical roof pitch, but structural loads, snow/wind, detailed shadows, fire-code compliance, wiring and electrical interconnection are not assessed. Buffers are configurable planning assumptions. Flat-roof modules lie on the fitted surface; tilted rack spacing and mutual shading are not modelled. Uploaded images still depend on manual calibration and perspective.
+This is a **planning estimate, not a construction plan**. Official geometry is not installation-survey precision; imagery, roof records and elevation may have different acquisition dates. Nearby shadows are sampled geometrically, not simulated with hourly weather or seasonal foliage. Structural loads, snow/wind, fire-code compliance, wiring and electrical interconnection are not assessed. Buffers are configurable planning assumptions. Flat-roof modules lie on the fitted surface; tilted rack spacing and mutual shading are not modelled. Uploaded images still depend on manual calibration and perspective.
 
 The search selects the best tested regular grid, not the mathematical global optimum; it does not mix portrait/landscape modules within one layout. Mode results are recalculated, not hardcoded, and need not be perfectly monotonic under a finite offset search. Suggested counts should be reviewed by an installer.
 
