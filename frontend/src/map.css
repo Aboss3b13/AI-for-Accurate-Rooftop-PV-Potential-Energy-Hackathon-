@@ -646,3 +646,39 @@
   line-height: 1.65;
   color: #9baa8f;
 }
+
+/* A roof that fits modules but is recommended none must say why. */
+.blocked-note {
+  border: 1px solid #efe0c2;
+  background: #fdf8ee;
+  border-radius: 11px;
+  padding: 15px 16px;
+  margin: 4px 0 18px;
+}
+.blocked-note strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a6d2f;
+  margin-bottom: 7px;
+}
+.blocked-note p {
+  margin: 0 0 7px;
+  font-size: 11px;
+  line-height: 1.65;
+  color: #7a6b4e;
+}
+.blocked-note ul {
+  margin: 0 0 7px;
+  padding-left: 16px;
+}
+.blocked-note li {
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: #8a7a5c;
+  margin-bottom: 3px;
+}
+.blocked-lever {
+  color: #9a8a6c !important;
+  font-size: 10px !important;
+}

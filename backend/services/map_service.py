@@ -39,6 +39,11 @@ MIN_PLANE_AREA_M2 = 0.25
 MIN_CANDIDATE_AREA_M2 = 2.0
 MIN_HOLE_AREA_M2 = 0.25
 MIN_DRAWN_AREA_M2 = 1.0
+# Faces this close in orientation, and this close together, are one surface.
+COPLANAR_PITCH_DEG = 6.0
+COPLANAR_AZIMUTH_DEG = 12.0
+COPLANAR_GAP_M = 0.6
+FLAT_PITCH_DEG = 5.0
 
 
 class MapServiceError(Exception):
@@ -165,6 +170,96 @@ def merge_building(planes: list[dict], click: Point) -> dict | None:
         "merged_planes": len(members),
         "facets": geometries,
     }
+
+
+def merge_coplanar(members: list[dict]) -> list[dict]:
+    """Join touching faces that share an orientation into one physical plane.
+
+    Sonnendach splits a roof by sub-area as well as by geometry, so one plane
+    can arrive as several narrow strips. Packed separately, each is charged a
+    full edge setback along a boundary that is not an edge at all: a villa in
+    Seefeld arrived as 6.5 x 1.61 m strips at 1244 kWh/m2, which leaves 0.71 m
+    once both margins are taken and fits no module, so a sunny roof returned
+    nothing. Merged, the strips are one surface and pack normally.
+    """
+    if len(members) < 2:
+        return members
+    parents = list(range(len(members)))
+
+    def root(i):
+        while parents[i] != i:
+            parents[i] = parents[parents[i]]
+            i = parents[i]
+        return i
+
+    def orientation(plane):
+        pitch = plane["properties"].get("neigung")
+        azimuth = plane["properties"].get("ausrichtung")
+        return (None if pitch is None else float(pitch),
+                None if azimuth is None else float(azimuth))
+
+    for a in range(len(members)):
+        pitch_a, azimuth_a = orientation(members[a])
+        for b in range(a + 1, len(members)):
+            pitch_b, azimuth_b = orientation(members[b])
+            if pitch_a is None or pitch_b is None:
+                continue
+            # Flat faces are left alone. Equal pitch and aspect says nothing
+            # about height when both are zero, so joining them can weld two
+            # levels of a stepped roof into one plane that exists nowhere - it
+            # cost a 2,800 m2 industrial roof every one of its 412 modules.
+            if min(pitch_a, pitch_b) <= FLAT_PITCH_DEG:
+                continue
+            if abs(pitch_a - pitch_b) > COPLANAR_PITCH_DEG:
+                continue
+            if azimuth_a is None or azimuth_b is None:
+                continue
+            turn = abs(azimuth_a - azimuth_b) % 360
+            if min(turn, 360 - turn) > COPLANAR_AZIMUTH_DEG:
+                continue
+            if members[a]["geometry"].dwithin(members[b]["geometry"], COPLANAR_GAP_M):
+                parents[root(a)] = root(b)
+
+    groups: dict[int, list[int]] = {}
+    for index in range(len(members)):
+        groups.setdefault(root(index), []).append(index)
+    merged = []
+    for indices in groups.values():
+        if len(indices) == 1:
+            merged.append(members[indices[0]])
+            continue
+        parts = [members[i] for i in indices]
+        union = unary_union([p["geometry"] for p in parts])
+        if union.geom_type != "Polygon":
+            merged.extend(parts)
+            continue
+        simplified = bounded_simplify(union)
+        if simplified is None:
+            merged.extend(parts)
+            continue
+        lead = max(parts, key=lambda p: p["geometry"].area)
+        properties = dict(lead["properties"])
+        # Sonnendach's per-face totals are additive; its irradiation is a mean,
+        # so it has to be re-weighted or the baseline comparison drifts.
+        total_area = 0.0
+        weighted = 0.0
+        for key in ("flaeche", "stromertrag", "flaeche_kollektoren"):
+            values = [p["properties"].get(key) for p in parts]
+            numbers = [float(v) for v in values if isinstance(v, (int, float))]
+            if numbers:
+                properties[key] = sum(numbers)
+        for part in parts:
+            area = part["properties"].get("flaeche") or part["geometry"].area
+            irradiation = part["properties"].get("mstrahlung")
+            if isinstance(irradiation, (int, float)):
+                total_area += float(area)
+                weighted += float(area) * float(irradiation)
+        if total_area:
+            properties["mstrahlung"] = round(weighted / total_area)
+        merged.append({**lead, "geometry": simplified, "properties": properties,
+                       "merged_faces": len(parts)})
+    merged.sort(key=lambda p: p["id"])
+    return merged
 
 
 def feature_planes(features: list[dict], click: Point) -> list[dict]:
@@ -360,6 +455,14 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                        if planes and building is not None and
                        (not selection.roof_id or selection.roof_id.startswith("building:")) else [selected])
         members.sort(key=lambda p: p["id"])
+        before = len(members)
+        members = merge_coplanar(members)
+        if len(members) < before:
+            warnings.append(
+                f"Joined {before} official roof faces into {len(members)} physical surfaces. "
+                "Sonnendach splits a plane by sub-area, and packing the strips "
+                "separately charges an edge setback to boundaries that are not edges."
+            )
         all_geometry = unary_union([p["geometry"] for p in members]) if members else geometry
         if len(members) > 1:
             selected = {**selected, "merged_planes": len(members)}

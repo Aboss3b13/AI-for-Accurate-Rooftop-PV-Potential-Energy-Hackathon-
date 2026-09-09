@@ -287,6 +287,54 @@ This is a colour rule, not a trained detector, and the README says so because it
 
 ---
 
+## Tested across Zurich
+
+`scripts/zurich_survey.py` samples a real building in each of ten Zurich
+districts, runs the whole pipeline, and writes a rendered overlay per roof so
+the layout can be checked by eye rather than by summary statistics.
+
+```powershell
+.venv/Scripts/python.exe scripts/zurich_survey.py out/
+```
+
+```text
+district              m2 faces  pan    kWp   obs  win  screened  short%
+01 Altstadt          236     2   58   26.1     1    1         0    44.5
+03 Wiedikon          225    19    0    0.0     5    1        91   100.0
+04 Aussersihl       1677    54  209   94.0    29   14       261    70.3
+05 Industrie        2817     6  412  185.4    32   24       358    80.4
+06 Unterstrass       621    15   84   37.8     7    4        30    69.6
+07 Hottingen         228     3   23   10.3    10    9         0    76.6
+08 Seefeld           558    27    0    0.0    13   10       325   100.0
+09 Altstetten        228     7   29   13.1     1    1        67    63.2
+11 Oerlikon          296     2   92   41.4     4    2         0    29.6
+```
+
+That survey found three real defects, all now fixed and covered by tests:
+
+- **A crash.** Projecting a face's outline back through its own plane can leave
+  a ring that touches itself, and GEOS then threw a side-location conflict
+  mid-union — a 500 on the 2,817 m² industrial roof. Geometry is repaired with
+  `make_valid` before unioning, not `buffer(0)`, which resolves a self-touching
+  ring by discarding a lobe and would have quietly lost real roof area.
+- **Narrow strips fitting nothing.** Sonnendach splits one plane by sub-area,
+  so a villa arrived as 6.5 × 1.61 m strips at 1244 kWh/m². Packed separately
+  each is charged a full edge setback on a boundary that is not an edge,
+  leaving 0.71 m — less than a module. Touching faces that share an
+  orientation are now joined first.
+- **A regression that fix caused.** Joining faces by pitch and aspect alone
+  welded two levels of a stepped flat roof into a plane that exists nowhere,
+  and the industrial roof went from 412 modules to none. Flat faces are no
+  longer joined: at pitch zero, matching aspect says nothing about height.
+
+Two roofs still report zero, and that is the honest answer rather than a bug.
+Seefeld is a villa under heavy tree cover: 47 modules would physically fit, but
+once shade screening removes the cells that are dark for most of the day, no
+connected group of four survives. The result panel now says exactly that
+instead of showing a bare zero.
+
+---
+
 ## Read this before trusting a number
 
 SolarFit is an **honest estimate, not an installation plan.**

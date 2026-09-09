@@ -5,6 +5,8 @@ import time
 import numpy as np
 from pyproj import Transformer
 from shapely.geometry import Polygon, mapping
+from shapely import make_valid
+from shapely.errors import GEOSException
 from shapely.ops import transform, unary_union
 from backend.services.runtime_cache import captures
 from backend.services.geometry_service import build_usable, polygon_from_points
@@ -84,6 +86,37 @@ def deduplicate(objects):
     return merged
 
 
+def safe_union(geometries):
+    """Union geometry that projection may have left slightly self-inconsistent.
+
+    Projecting a face's local outline back through its own plane can produce a
+    ring that touches itself, and GEOS then raises a side-location conflict
+    mid-union. Repairing each part first keeps a single bad face from failing
+    the whole analysis.
+    """
+    cleaned = []
+    for geometry in geometries:
+        if geometry is None or geometry.is_empty:
+            continue
+        if not geometry.is_valid:
+            # make_valid over buffer(0): buffer(0) resolves a self-touching ring
+            # by discarding a lobe, which would quietly lose real roof area.
+            repaired = make_valid(geometry)
+            pieces = getattr(repaired, "geoms", [repaired])
+            polygons = [g for g in pieces if g.geom_type == "Polygon" and not g.is_empty]
+            geometry = unary_union(polygons) if polygons else Polygon()
+        if geometry.is_empty:
+            continue
+        cleaned.append(geometry)
+    if not cleaned:
+        return Polygon()
+    try:
+        return unary_union(cleaned)
+    except GEOSException:
+        # A hairline overlap between two repaired faces can still trip GEOS.
+        return unary_union([g.buffer(1e-9) for g in cleaned]).buffer(-1e-9)
+
+
 def analyse_surfaces(image, settings, objects, warnings, model, start=None):
     start = start or time.perf_counter()
     context = captures.get(settings.capture_id)
@@ -117,7 +150,7 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
             world = world.intersection(clip)
         overlap = world.intersection(occupied).area
         world = world.difference(occupied)
-        occupied = unary_union([occupied, world])
+        occupied = safe_union([occupied, world])
         local = plane.local_geometry(world)
         local_objects = []
         for obj in merged:
@@ -253,20 +286,20 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
     assessment = building_assessment(settings, faces, count, comparisons[settings.objective]["annual_energy_kwh"],
                                      sum(f["physical_panel_count"] for f in faces))
     display_objects = []
-    outline = unary_union([f["world"] for f in faces])
+    outline = safe_union([f["world"] for f in faces])
     for obj in merged:
         for part in parts(obj["world"].intersection(outline)):
             display_objects.append({k: v for k, v in obj.items() if k not in {"geometry", "world", "polygon"}} |
                 {"polygon": list(transform(geo.pixel, part).exterior.coords)[:-1]})
     return {"roof": mapping(transform(geo.pixel, outline)),
-            "usable_area": mapping(transform(geo.pixel, unary_union([f["plane"].world_geometry(f["usable"]) for f in faces]))),
-            "excluded_area": mapping(transform(geo.pixel, unary_union([f["plane"].world_geometry(f["excluded"]) for f in faces]))),
+            "usable_area": mapping(transform(geo.pixel, safe_union([f["plane"].world_geometry(f["usable"]) for f in faces]))),
+            "excluded_area": mapping(transform(geo.pixel, safe_union([f["plane"].world_geometry(f["excluded"]) for f in faces]))),
             "proposed_panels": image_panels,
             "existing_pv": [o for o in display_objects if o["kind"] == "existing_pv"],
             "obstacles": [o for o in display_objects if o["kind"] != "existing_pv"],
             "faces": public_faces, "map_overlay": {"type": "FeatureCollection", "features": features},
             "assessment": assessment,
-            "shaded_area": mapping(transform(geo.pixel, unary_union([f["plane"].world_geometry(f["shaded"]) for f in faces]))),
+            "shaded_area": mapping(transform(geo.pixel, safe_union([f["plane"].world_geometry(f["shaded"]) for f in faces]))),
             "objective": settings.objective, "energy_available": available,
             "sonnendach": sonnendach_comparison(
                 context["faces"], faces, settings,

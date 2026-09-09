@@ -36,6 +36,23 @@ export default function AnalysisPanel({
   comparisons,
 }: Props) {
   const stats = result?.statistics;
+  const assessment = result?.assessment;
+  // A roof that fits modules but is recommended none needs to say so: the
+  // headline zero otherwise reads as "this roof is full" rather than
+  // "the screening rejected every layout".
+  const blocked =
+    assessment &&
+    assessment.proposed_panel_count === 0 &&
+    assessment.physical_panel_capacity > 0
+      ? assessment
+      : null;
+  const blockedReasons = blocked
+    ? Array.from(
+        new Set(
+          (result?.faces ?? []).flatMap((f) => f.assessment?.reasons ?? []),
+        ),
+      ).slice(0, 3)
+    : [];
   return (
     <aside>
       <div className="result-card">
@@ -70,6 +87,27 @@ export default function AnalysisPanel({
             fits somewhere around 5–15 kWp.
           </Help>
         </div>
+        {blocked && (
+          <div className="blocked-note" role="note">
+            <strong>
+              {blocked.physical_panel_capacity} modules would physically fit —
+              none are recommended.
+            </strong>
+            <p>{blocked.title}.</p>
+            {!!blockedReasons.length && (
+              <ul>
+                {blockedReasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+            <p className="blocked-lever">
+              This is the screening being cautious, not the roof being empty.
+              Loosen the shade and array-size rules in the settings to see the
+              physical layout.
+            </p>
+          </div>
+        )}
         <div className="mode-control-head">
           <span>How tightly to pack the panels</span>
           <Help title="Conservative, Recommended, Maximum">
