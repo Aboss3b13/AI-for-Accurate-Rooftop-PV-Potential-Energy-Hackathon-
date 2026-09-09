@@ -34,6 +34,14 @@ Validation mask mAP50 was approximately 0.710 and mask mAP50–95 0.487. The bes
 
 ## Limitations
 
+Additional pixel occupancy evaluation at the application's 640 px input and
+0.25 confidence threshold is recorded in [pixel-evaluation.json](pixel-evaluation.json):
+IoU 0.560, F1 0.718, precision 0.615, recall 0.861 across 172 test tiles.
+These are micro-aggregated pixel metrics against converted polygon masks, which
+omit holes and tiny components. They differ from the instance metrics above.
+Kilometre groups have zero split overlap; adjacent groups can still cross splits.
+Reproduce with `python -m training.evaluate_pixels`.
+
 Precision and recall show that both missed PV and false positives remain. The dataset is geographically narrow; the grouping reduces direct tile leakage but does not establish robustness across countries, sensors, seasons or screenshot styles. Heavy shadows, small panels, perspective, map overlays and screenshot rescaling can reduce performance. Test mask performance does not prove correct additional-panel counts.
 
 No obstacle, roof-plane, usable-area or installable-capacity ground truth was supplied. **Capacity MAE and obstacle accuracy are unavailable**, not zero. Confidence values are uncalibrated detector scores. Roof structural suitability, pitch, access and regulatory clearances require separate review.

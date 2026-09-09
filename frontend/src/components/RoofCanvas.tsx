@@ -7,6 +7,7 @@ export type Tool =
   | "existing_pv"
   | "chimney"
   | "skylight"
+  | "rwa"
   | "other_obstacle"
   | "scale";
 export const layerNames = {
@@ -47,6 +48,7 @@ export default function RoofCanvas({
   onFinish,
   onRoofChange,
   measurement,
+  shadowPreview,
 }: {
   url: string;
   size: [number, number];
@@ -61,6 +63,7 @@ export default function RoofCanvas({
   onFinish: (p: Point[]) => void;
   onRoofChange: (p: Point[]) => void;
   measurement: Point[];
+  shadowPreview?: { shade: Geometry; unknown: Geometry } | null;
 }) {
   const [drag, setDrag] = useState<number | null>(null);
   function location(e: React.PointerEvent<SVGSVGElement>): Point {
@@ -124,7 +127,11 @@ export default function RoofCanvas({
               fillRule="evenodd"
             />
           )}
-          {result?.shaded_area && layers.shade && <path d={path(result.shaded_area)} fill="#8061b8" fillOpacity={0.38} stroke="#644592" strokeWidth={1} fillRule="evenodd" />}
+          {!shadowPreview && result?.shaded_area && layers.shade && <path d={path(result.shaded_area)} fill="#8061b8" fillOpacity={0.38} stroke="#644592" strokeWidth={1} fillRule="evenodd" />}
+          {shadowPreview && <>
+            <path d={path(shadowPreview.shade)} fill="#64309c" fillOpacity={0.55} fillRule="evenodd" />
+            <path d={path(shadowPreview.unknown)} fill="#777" fillOpacity={0.45} fillRule="evenodd" />
+          </>}
           {layers.existing &&
             (
               result?.existing_pv ||

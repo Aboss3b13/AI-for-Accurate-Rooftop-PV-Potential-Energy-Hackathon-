@@ -131,6 +131,20 @@ def test_edge_slivers_are_not_structures():
     assert es.detect(heights, MINX, MAXY, [facet()]) == []
 
 
+def test_terrain_exclusion_with_missing_residual_has_json_safe_unknown_height():
+    import json
+    heights = roof()
+    residual = np.zeros(heights.shape, dtype=np.float32)
+    residual[10:20, 10:20] = np.nan
+    above_ground = np.full(heights.shape, 10.)
+    above_ground[10:20, 10:20] = 0.
+    found = es.detect(heights, MINX, MAXY, [facet()],
+                      fits=[{"residual": residual}], above_ground=above_ground)
+    assert len(found) == 1 and found[0]["below_roof"]
+    assert found[0]["height_m"] is None
+    json.dumps([{k: v for k, v in item.items() if k != "geometry"} for item in found], allow_nan=False)
+
+
 def test_ground_far_below_the_face_is_not_roof():
     # A Sonnendach face can span a block and take in its courtyard. Panels were
     # being packed onto the garden inside it.

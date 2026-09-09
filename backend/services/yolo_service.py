@@ -5,6 +5,7 @@ from threading import Lock
 from collections import OrderedDict
 import logging
 from .sam_service import SamRefiner
+from .pv_segmentation import detection_views, merge_detections
 
 CLASSES = {"existing_pv", "chimney", "skylight", "other_obstacle", "dormer"}
 ALIASES = {
@@ -83,19 +84,17 @@ class YoloService:
                     retina_masks=True,
                 )
                 warnings = []
-                try:
-                    result = self.model.predict(
-                        image, device=self.device, half=self.device != "cpu", **kwargs
-                    )[0]
-                except RuntimeError:
-                    self.device = "cpu"
-                    self.model.to("cpu")
-                    result = self.model.predict(
-                        image, device="cpu", half=False, **kwargs
-                    )[0]
-                    warnings.append("GPU inference failed; CPU fallback used.")
                 objects = []
-                if result.masks is not None:
+                for view, offset_x, offset_y in detection_views(image):
+                    try:
+                        result = self.model.predict(view, device=self.device, **kwargs)[0]
+                    except RuntimeError:
+                        self.device = "cpu"
+                        self.model.to("cpu")
+                        result = self.model.predict(view, device="cpu", **kwargs)[0]
+                        warnings.append("GPU inference failed; CPU fallback used.")
+                    if result.masks is None:
+                        continue
                     for mask, cls, confidence in zip(
                         result.masks.xy,
                         result.boxes.cls.tolist(),
@@ -106,12 +105,13 @@ class YoloService:
                         if len(mask) >= 3:
                             objects.append(
                                 {
-                                    "polygon": mask.tolist(),
+                                    "polygon": [[float(x)+offset_x, float(y)+offset_y] for x, y in mask],
                                     "kind": kind,
                                     "confidence": confidence,
                                     "source": "yolo",
                                 }
                             )
+                objects = merge_detections(objects)
                 objects, sam_warning = self.refiner.refine(image, objects)
                 if sam_warning:
                     warnings.append(sam_warning)

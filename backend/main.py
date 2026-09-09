@@ -1,10 +1,14 @@
+from backend.services.planning_service import planning_constraints
 import io
 import json
 import time
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
+from backend.runtime_version import source_revision
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
@@ -21,12 +25,23 @@ ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 app = FastAPI(title="SolarFit", version="1.2.0")
 app.include_router(map_router)
+LOADED_REVISION = source_revision()
 Image.MAX_IMAGE_PIXELS = 25_000_000
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request, exc):
+    logging.getLogger("uvicorn.error").error("Unhandled request failure: %s %s", request.method, request.url.path,
+                                           exc_info=(type(exc), exc, exc.__traceback__))
+    return JSONResponse(status_code=500, content={"detail":
+        "SolarFit could not process this roof. Retry or select the roof again. The server log contains the diagnostic details."})
 
 
 @app.get("/api/health")
 def health():
-    return {"app": "SolarFit", "version": "1.2.0", "geometry": "official_roof_surfaces_with_sunlight_screening", "status": "ok", "model": yolo.status()}
+    return {"app": "SolarFit", "version": "1.2.0", "backend_revision": LOADED_REVISION,
+            "restart_required": LOADED_REVISION != source_revision(), "capabilities": ["shadow_preview"],
+            "geometry": "official_roof_surfaces_with_sunlight_screening", "status": "ok", "model": yolo.status()}
 
 
 def analyse(image, settings):
@@ -84,6 +99,7 @@ def analyse(image, settings):
         "model": model,
         "warnings": warnings,
         "confidence": confidence,
+        "planning_constraints": planning_constraints(settings),
         "mode": settings.mode,
         "statistics": {
             "existing_pv_regions": sum(x["kind"] == "existing_pv" for x in objects),

@@ -68,6 +68,10 @@ if __name__ == "__main__":
 
             data = json.load(response)
             if data.get("app") == "SolarFit":
+                from backend.runtime_version import source_revision
+                if data.get("backend_revision") != source_revision():
+                    print("An older SolarFit backend is still running on port 8000. Close its server window and run START_SOLARFIT.bat again. Reloading the browser alone cannot update the backend.")
+                    sys.exit(1)
                 open_app(f"http://127.0.0.1:{port}")
                 if TUNNEL_PROCESSES:
                     print("Keep this window open to share SolarFit. Ctrl+C stops this tunnel.")

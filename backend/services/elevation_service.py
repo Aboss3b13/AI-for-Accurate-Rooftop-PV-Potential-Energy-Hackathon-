@@ -296,7 +296,7 @@ def detect(
     """Return superstructure polygons in LV95 metres, with height and class."""
     raised = np.zeros(heights.shape, dtype=np.uint8)
     dropped = np.zeros(heights.shape, dtype=np.uint8)
-    depth = np.zeros(heights.shape, dtype=np.float32)
+    depth = np.full(heights.shape, np.nan, dtype=np.float32)
     kernel = np.ones((3, 3), np.uint8)
     for index, facet in enumerate(facets):
         mask = facet_mask(facet, heights.shape, minx, maxy)
@@ -312,14 +312,17 @@ def detect(
         threshold = rise_threshold(residual, mask)
         hit = core & np.isfinite(residual) & (residual > threshold)
         raised[hit] = 1
-        depth[hit] = np.maximum(depth[hit], residual[hit])
+        depth[hit] = np.fmax(depth[hit], residual[hit])
         below = core & np.isfinite(residual) & (residual < -MIN_DROP_M)
         if above_ground is not None:
             # Ground inside the outline is not roof at all, whatever its height
             # relative to the fitted face.
             below |= core & np.isfinite(above_ground) & (above_ground < MIN_ROOF_HEIGHT_M)
         dropped[below] = 1
-        depth[below] = np.maximum(depth[below], np.abs(residual[below]))
+        # A terrain-supported exclusion can have no fitted residual (e.g. a
+        # courtyard at the edge of a face). Preserve its footprint, but never
+        # let missing heights poison measured depths from overlapping faces.
+        depth[below] = np.fmax(depth[below], np.abs(residual[below]))
     if not raised.any() and not dropped.any():
         return []
     # Close pinholes inside a chimney. Deliberately no opening: a 3x3 erosion
@@ -345,7 +348,8 @@ def detect(
           patch = np.zeros(mask.shape, np.uint8)
           cv2.drawContours(patch, [contour], -1, 1, -1)
           rises = depth[patch.astype(bool)]
-          rise = float(rises.max()) if rises.size else 0.0
+          rises = rises[np.isfinite(rises)]
+          rise = float(rises.max()) if rises.size else None
           ring = [
               (minx + (c + 0.5) * DSM_STEP_M, maxy - (r + 0.5) * DSM_STEP_M)
               for c, r in approx
@@ -368,7 +372,7 @@ def detect(
           found.append(
               {
                   "geometry": polygon,
-                  "height_m": round(rise, 2),
+                  "height_m": round(rise, 2) if rise is not None else None,
                   "area_m2": round(area, 2),
                   "below_roof": below_roof,
                   "kind": "other_obstacle" if below_roof

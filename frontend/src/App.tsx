@@ -3,6 +3,7 @@ import SatelliteMap from "./components/SatelliteMap";
 import RoofFaces from "./components/RoofFaces";
 import MapContext from "./components/MapContext";
 import Help from "./components/Help";
+import ShadowExplorer, { type ShadowPreview } from "./components/ShadowExplorer";
 import { api } from "./http";
 import { prepareMapCapture, type MapCapture, type MapPick } from "./mapTypes";
 import "./map.css";
@@ -38,6 +39,7 @@ const labels: Record<Tool, string> = {
   existing_pv: "Mark existing PV",
   chimney: "Mark chimney",
   skylight: "Mark skylight",
+  rwa: "Mark smoke / heat exhaust (RWA)",
   other_obstacle: "Mark obstacle",
   scale: "Measure distance",
 };
@@ -62,6 +64,7 @@ export default function App() {
   const [annualUse, setAnnualUse] = useState("");
   const [existingGeneration, setExistingGeneration] = useState("");
   const [mapCapture, setMapCapture] = useState<MapCapture | null>(null);
+  const [shadowPreview, setShadowPreview] = useState<ShadowPreview | null>(null);
   const [mapBusy, setMapBusy] = useState(false),
     [mapError, setMapError] = useState("");
   const [mapEdited, setMapEdited] = useState(false),
@@ -93,6 +96,7 @@ export default function App() {
     [verified, setVerified] = useState(false);
   const [angle, setAngle] = useState(0),
     [yieldValue, setYield] = useState(""),
+    [performanceRatio, setPerformanceRatio] = useState(0.8),
     [ai, setAi] = useState(true),
     [model, setModel] = useState("Checking model…");
   const [edge, setEdge] = useState(0.3),
@@ -125,6 +129,7 @@ export default function App() {
     verified,
     angle,
     yieldValue,
+    performanceRatio,
     objective, panelLimit, layoutPolicy, annualUse, existingGeneration,
     ai,
     edge,
@@ -138,13 +143,16 @@ export default function App() {
   useEffect(() => {
     api("/api/health")
       .then((r) => r.json())
-      .then((d) =>
+      .then((d) => {
+        if (d.restart_required || !d.capabilities?.includes("shadow_preview")) {
+          setError("An older SolarFit backend is running. Close its server window, restart SolarFit, then select the roof again.");
+        }
         setModel(
           d.model.available
             ? "YOLO11-seg ready"
             : "Manual mode · model missing",
-        ),
-      )
+        );
+      })
       .catch(() => setModel("Backend offline"));
     api("/examples/manifest.json")
       .then((r) => r.json())
@@ -340,6 +348,7 @@ export default function App() {
         approximate_roof_width: Number(roofWidth),
         scale_verified: verified,
         angle,
+        performance_ratio: performanceRatio,
         annual_specific_yield: yieldValue ? Number(yieldValue) : null,
         use_ai: ai,
         edge_margin: edge,
@@ -395,6 +404,7 @@ export default function App() {
     verified,
     angle,
     yieldValue,
+    performanceRatio,
     objective, panelLimit, layoutPolicy, annualUse, existingGeneration,
     ai,
     edge,
@@ -424,6 +434,7 @@ export default function App() {
     verified,
     angle,
     yieldValue,
+    performanceRatio,
     objective, panelLimit, layoutPolicy, annualUse, existingGeneration,
     ai,
     edge,
@@ -453,7 +464,7 @@ export default function App() {
             input: { roof, objects, panel, mode, angle, objective, max_panels: panelLimit || null,
               layout_policy: layoutPolicy, annual_consumption_kwh: annualUse || null, existing_generation_kwh: existingGeneration || null,
               face_overrides: faceOverrides, building_override: buildingOverride,
-              pixels_per_metre: ppm, annual_specific_yield: yieldValue || null,
+              performance_ratio: performanceRatio, pixels_per_metre: ppm, annual_specific_yield: yieldValue || null,
               edge_margin: edge, obstacle_margin: obstacleMargin, pv_margin: pvMargin },
             map_provenance: mapCapture?.provenance ?? null,
             boundary_adjusted: mapEdited,
@@ -627,6 +638,7 @@ export default function App() {
                         changeRoof(p);
                       }}
                       measurement={measurement}
+                      shadowPreview={shadowPreview?.captureId === mapCapture?.capture_id ? shadowPreview : null}
                     />
                     <div className="image-badge">
                       <span className="small-dot" />
@@ -642,6 +654,7 @@ export default function App() {
                       </div>
                     )}
                   </div>
+                  {mapCapture && <ShadowExplorer key={mapCapture.capture_id} captureId={mapCapture.capture_id} onChange={setShadowPreview} />}
                   <div className="drawing-tools">
                     {(
                       [
@@ -649,6 +662,7 @@ export default function App() {
                         ["roof", Pentagon],
                         ["scale", Ruler],
                         ["other_obstacle", Plus],
+                        ["rwa", Plus],
                         ["existing_pv", ScanLine],
                       ] as const
                     ).map(([t, Icon]) => (
@@ -1015,6 +1029,12 @@ export default function App() {
                       onChange={(e) => setYield(e.target.value)}
                     />
                   </label>
+                  <label>
+                    Performance ratio
+                    <Help title="Energy assumption">Multiplies official annual irradiation to estimate production. Default 0.80. A supplied annual yield overrides this value. Local shade is not multiplied again.</Help>
+                    <input type="number" min="0.1" max="1" step="0.01" value={performanceRatio}
+                      onChange={(e) => setPerformanceRatio(Number(e.target.value))} />
+                  </label>
                   <label className="check-label">
                     <input
                       type="checkbox"
@@ -1026,7 +1046,7 @@ export default function App() {
                 </div>
                 <p className="field-note">
                   Margins × 1.5 conservative / × 1 recommended / × 0.5 maximum.
-                  These are planning assumptions.
+                  These are planning assumptions. Mark confirmed smoke / heat exhaust openings with RWA; their 2 m advisory clearance is retained in every mode. Skylights are not automatically classified as RWA.
                 </p>
               </details>
               {objects.length > 0 && (

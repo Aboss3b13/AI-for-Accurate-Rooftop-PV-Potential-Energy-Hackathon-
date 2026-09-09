@@ -63,6 +63,7 @@ async def a_building_near(client, lat, lon):
 
 async def analyse(client, capture):
     settings = {
+        "capture_id": capture["capture_id"],
         "roof": capture["roof"],
         "objects": capture["objects"],
         "mode": "recommended",

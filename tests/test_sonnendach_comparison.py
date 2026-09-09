@@ -125,3 +125,11 @@ def test_existing_panels_win_over_an_overlapping_obstacle_mark():
     result = sonnendach_comparison([official(100.0, 20000.0)], faces, config, 5000.0, 2)
     assert result["breakdown_m2"]["existing_pv"] == pytest.approx(16.0, abs=0.1)
     assert result["breakdown_m2"]["roof_obstacles"] == pytest.approx(0.0, abs=0.1)
+
+
+def test_physical_preview_does_not_subtract_disabled_screening():
+    result = sonnendach_comparison([official(100, 20000)],
+        [face(100, eligible=False, shaded=20)], settings(layout_policy="physical"), 1000, 10)
+    assert result["breakdown_m2"]["faces_screened_out"] == 0
+    assert result["breakdown_m2"]["shaded"] == 0
+    assert sum(result["breakdown_m2"].values()) + result["fitted_module_area_m2"] == pytest.approx(100, abs=.2)

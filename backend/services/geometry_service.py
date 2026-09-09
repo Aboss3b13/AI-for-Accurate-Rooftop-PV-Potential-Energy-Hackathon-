@@ -19,7 +19,10 @@ def build_usable(roof, detections, ppm, settings):
     inner = roof.buffer(-settings.edge_margin * factor * ppm, join_style=2)
     exclusions = []
     for item in detections:
-        geometry = polygon_from_points(item["polygon"]).intersection(roof)
+        geometry = polygon_from_points(item["polygon"])
+        is_rwa = "rwa" in [item["kind"], *item.get("kinds", [])]
+        if not is_rwa:
+            geometry = geometry.intersection(roof)
         margin = (
             settings.pv_margin
             if item["kind"] == "existing_pv"
@@ -28,7 +31,10 @@ def build_usable(roof, detections, ppm, settings):
         # A union of PV and structural evidence must retain the larger clearance.
         for kind in item.get("kinds", []):
             margin = max(margin, settings.pv_margin if kind == "existing_pv" else settings.obstacle_margin)
-        exclusions.append(geometry.buffer(margin * factor * ppm, join_style=2))
+        clearance = margin * factor
+        if is_rwa:
+            clearance = max(clearance, 2.0)
+        exclusions.append(geometry.buffer(clearance * ppm, join_style=2))
     usable = inner.difference(unary_union(exclusions)) if exclusions else inner
     return usable, roof.difference(usable)
 

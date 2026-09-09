@@ -1,3 +1,4 @@
+from backend.services.planning_service import planning_constraints
 """Reuse detections and packing on independent, physical roof surfaces."""
 import hashlib
 import math
@@ -40,7 +41,7 @@ class GeoReference:
         return (np.asarray(x)-self.x)*self.ppm, (self.y-np.asarray(y))*self.ppm
 
 
-def solar_data(props, override=None):
+def solar_data(props, override=None, performance_ratio=.8):
     def number(key):
         try:
             value = float(props.get(key))
@@ -52,10 +53,10 @@ def solar_data(props, override=None):
         irradiation = None
     return {"irradiation_kwh_m2_year": irradiation, "suitability_class": number("klasse"),
             "specific_yield_kwh_kwp": override if override is not None else
-                (irradiation * .8 if irradiation is not None else None),
+                (irradiation * performance_ratio if irradiation is not None else None),
             "yield_source": "User supplied specific yield" if override is not None else
-                ("Sonnendach irradiation × 0.80 performance ratio (planning estimate)" if irradiation is not None else None),
-            "performance_ratio": .8 if irradiation is not None and override is None else None}
+                (f"Sonnendach irradiation x {performance_ratio:.2f} performance ratio (planning estimate)" if irradiation is not None else None),
+            "performance_ratio": performance_ratio if irradiation is not None and override is None else None}
 
 
 def deduplicate(objects):
@@ -164,7 +165,14 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
                     continue
                 local_objects.append({k: v for k, v in obj.items() if k not in {"geometry", "world", "polygon"}} |
                     {"polygon": list(plane.local_geometry(part).exterior.coords)[:-1]})
-        usable, excluded = build_usable(local, local_objects, 1, settings)
+        # RWA clearances can reach an adjacent face even when the opening itself
+        # does not intersect it. Transform the full footprint before buffering.
+        packing_objects = [o for o in local_objects if "rwa" not in [o["kind"], *o.get("kinds", [])]]
+        for obj in merged:
+            if "rwa" in [obj["kind"], *obj.get("kinds", [])]:
+                for part in parts(obj["world"]):
+                    packing_objects.append({"kind": "rwa", "kinds": obj.get("kinds", []), "polygon": list(plane.local_geometry(part).exterior.coords)[:-1]})
+        usable, excluded = build_usable(local, packing_objects, 1, settings)
         angle = 0.
         if not local.is_empty:
             coords = list(local.minimum_rotated_rectangle.exterior.coords)
@@ -174,7 +182,7 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
         angle -= settings.angle - context["default_angle"]
         diagnostics = plane.describe()
         physical_panels, orientation = optimise_panels(usable, 1, settings.panel, angle, diagnostics)
-        solar = solar_data(face["properties"], settings.annual_specific_yield)
+        solar = solar_data(face["properties"], settings.annual_specific_yield, settings.performance_ratio)
         sunlight = face.get("sunlight", {"available": False, "reason": "No surrounding height analysis."})
         assessment = assess_face(plane, solar, sunlight, settings)
         shaded = sunlight_exclusions(sunlight, local, settings.minimum_sun_access)
@@ -273,6 +281,11 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
             "solar": f["solar"], "orientation": f["orientation"],
             "local_roof": mapping(f["local"]), "local_usable": mapping(f["usable"]),
             "local_objects": f["objects"], "local_panels": f["panels"],
+            "panels_3d": [{"corners_lv95_ln02": [plane.xyz(*point).tolist() for point in panel]
+                           if f["diagnostics"]["height_is_absolute"] else None,
+                           "normal": plane.normal.tolist(), "surface_corners_m": panel}
+                          for panel in f["panels"]],
+            "geometry_calculation": "Orthonormal 3D roof plane; physical surface metres; projected to the 2D display",
             "diagnostics": {**f["diagnostics"], **stats}})
     fallback = sum(f["plane"].source == "projected_2d" for f in faces)
     if fallback:
@@ -285,7 +298,7 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
     if target is not None and target > 0 and not available:
         warnings.append("The annual demand target cannot be applied without production estimates for the proposed faces.")
     if available:
-        warnings.append("Annual energy uses face-average irradiation with an assumed 80% performance ratio, or your supplied yield; it is not a production guarantee.")
+        warnings.append(f"Annual energy uses face-average irradiation with an assumed {settings.performance_ratio:.0%} performance ratio, or your supplied yield; it is not a production guarantee.")
     surface = sum(f["local"].area for f in faces)
     count = len(image_panels)
     assessment = building_assessment(settings, faces, count, comparisons[settings.objective]["annual_energy_kwh"],
@@ -319,6 +332,7 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
             "excluded_area": mapping(transform(geo.pixel, safe_union([f["plane"].world_geometry(f["excluded"]) for f in faces]))),
             "proposed_panels": image_panels,
             "pv_register": register,
+            "planning_constraints": planning_constraints(settings),
             "data_provenance": data_provenance(register, faces, display_objects, model),
             "vintage": vintage,
             "input_confidence": vintage_service.confidence(

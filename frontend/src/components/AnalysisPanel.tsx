@@ -281,6 +281,14 @@ export default function AnalysisPanel({
       )}
       {result && <SonnendachCard result={result} />}
       {result && <ProvenanceCard result={result} />}
+      {result?.planning_constraints && <details className="provenance-card">
+        <summary>Planning constraints - {result.planning_constraints.status}</summary>
+        <p>Effective installer margins: {Object.entries(result.planning_constraints.installer_assumptions_m).map(([key, value]) => `${key.replaceAll("_", " ")}: ${value} m`).join("; ")}.</p>
+        {result.planning_constraints.rules.map(rule => <p key={rule.type}>
+          <a href={rule.source} target="_blank" rel="noreferrer">VKF RWA guidance</a>: {rule.distance_m} m around marked smoke / heat exhaust openings. {rule.note}
+        </p>)}
+        <p>Not assessed: {result.planning_constraints.not_automatically_verified.join(", ")}.</p>
+      </details>}
       {Object.keys(comparisons).length > 1 && (
         <div className="comparison-card">
           <h3>Layouts explored</h3>

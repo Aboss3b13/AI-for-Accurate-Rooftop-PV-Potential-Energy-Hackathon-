@@ -130,5 +130,14 @@ def official_plane(geometry, properties, measured=None, samples=None):
             details.update(height_anchor_m=z, height_inlier_count=int(deck.size),
                            height_rmse_m=float(np.sqrt(np.mean(deck**2))) if deck.size else None)
             details["height_is_absolute"] = bool(deck.size >= 12 and deck.size/offsets.size >= .4)
+            details["height_anchor"] = "measured" if details["height_is_absolute"] else None
+        if not details["height_is_absolute"] and offsets.size >= 6:
+            # Shading needs to know roughly how high the roof sits, not how well
+            # its slope was recovered. Refusing the strict deck test left 36% of
+            # faces with no shade screening at all, which is worse than an
+            # approximate one that says so.
+            z = float(np.median(offsets))
+            details.update(height_anchor_m=z, height_anchor="approximate",
+                           height_is_absolute=True)
     details["plane_equation"] = {"a_dz_dx": a, "b_dz_dy": b, "z_at_origin": z}
     return RoofPlane.from_slopes(x, y, z, a, b, "sonnendach", details)

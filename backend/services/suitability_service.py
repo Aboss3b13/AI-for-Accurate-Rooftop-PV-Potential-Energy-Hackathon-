@@ -31,6 +31,9 @@ def assess_face(plane, solar, sunlight, settings):
         cautions.append("Official annual irradiation is unavailable; solar suitability is unverified.")
     if not sunlight.get("available"):
         cautions.append("Nearby shade could not be assessed: " + sunlight.get("reason", "missing height data"))
+    elif sunlight.get("height_anchor") == "approximate":
+        cautions.append("Roof height was anchored approximately, so the shade result "
+                        "places this face to within about half a metre in height.")
     elif sunlight.get("coverage_fraction", 1) < .98:
         cautions.append("Some surrounding height samples are missing; shade coverage is partial.")
     return {"status": "not_recommended" if reasons else "needs_review" if cautions else "suitable",
@@ -141,7 +144,7 @@ def sonnendach_comparison(context_faces, faces, settings, annual_energy_kwh, pan
     measured = screened = existing = obstructed = shaded = 0.0
     for face in faces:
         measured += face["local"].area
-        if not face["assessment"]["eligible"]:
+        if settings.layout_policy == "recommended" and not face["assessment"]["eligible"]:
             screened += face["local"].area
             continue
         # A chimney's footprint is also in shade, and marks can overlap each
@@ -157,7 +160,8 @@ def sonnendach_comparison(context_faces, faces, settings, annual_energy_kwh, pan
         pv_area = unary_union(pv).intersection(face["local"]) if pv else Polygon()
         blocked = unary_union(blockers).intersection(face["local"]) if blockers else Polygon()
         blocked = blocked.difference(pv_area)
-        shade = face["shaded"].difference(unary_union([pv_area, blocked]))
+        shade = (face["shaded"].intersection(face["local"]).difference(unary_union([pv_area, blocked]))
+                 if settings.layout_policy == "recommended" else Polygon())
         existing += pv_area.area
         obstructed += blocked.area
         shaded += shade.area
@@ -189,9 +193,10 @@ def sonnendach_comparison(context_faces, faces, settings, annual_energy_kwh, pan
             "shaded": round(shaded, 1),
             "margins_and_module_fit": round(fitting, 1),
         },
-        "basis": "Sonnendach suitable area and annual yield for this building, "
-                 "against the modules SolarFit can actually place. The breakdown "
-                 "is measured on SolarFit's own roof surface, face by face.",
+        "basis": "Sonnendach reports inclined roof area and theoretical annual yield under its own assumptions. "
+                 "SolarFit reports additional modules with your dimensions, occupancy, clearances and screening settings. "
+                 "These are different definitions, not an accuracy score. The breakdown uses the analysed surface; "
+                 "unused space also includes group, panel-count and demand limits.",
     }
 
 

@@ -1,6 +1,6 @@
 export type Point = [number, number];
 export type Mode = "conservative" | "recommended" | "maximum";
-export type Kind = "existing_pv" | "chimney" | "skylight" | "other_obstacle";
+export type Kind = "existing_pv" | "chimney" | "skylight" | "rwa" | "other_obstacle";
 export type MarkedObject = {
   polygon: Point[];
   kind: Kind;
@@ -24,6 +24,12 @@ export type Panel = {
   gap: number;
 };
 export type Analysis = {
+  planning_constraints?: {
+    status: string;
+    installer_assumptions_m: Record<string, number>;
+    rules: {type: string; distance_m: number; source: string; condition: string; note: string}[];
+    not_automatically_verified: string[];
+  };
   shaded_area?: Geometry;
   assessment?: {
     status: string; title: string; layout_policy: string;

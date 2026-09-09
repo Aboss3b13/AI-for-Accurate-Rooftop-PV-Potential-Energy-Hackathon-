@@ -23,6 +23,7 @@ from backend.services.elevation_service import ElevationUnavailable, roof_model
 from backend.services.roof_plane import RoofPlane, official_plane
 from backend.services.runtime_cache import captures, prepared, geodata, imagery
 from backend.services.rooflight_service import detect as detect_rooflights
+from backend.services.pv_field_service import detect as detect_pv_fields
 from backend.services.pv_register_service import RegisterUnavailable, registered_pv
 from backend.services import vintage_service
 
@@ -124,6 +125,85 @@ def drawn_plane(selection: MapSelection) -> dict:
     }
 
 
+def connected_roof_members(planes: list[dict]) -> list[dict]:
+    """Resolve touching roof sections, not just one Sonnendach object ID.
+
+    Different known EGIDs remain separate buildings. Unknown identity can be
+    joined by a shared roof edge, but not by proximity or a corner alone.
+    """
+    if not planes:
+        return []
+    anchor = planes[0]
+    building = anchor["properties"].get("building_id")
+    members = [p for p in planes if building is not None and p["properties"].get("building_id") == building] or [anchor]
+    ids = {p["id"] for p in members}
+    known = {str(p["properties"]["gwr_egid"]) for p in members if p["properties"].get("gwr_egid")}
+    changed = True
+    while changed:
+        changed = False
+        footprint = unary_union([p["geometry"] for p in members])
+        for plane in planes:
+            if plane["id"] in ids:
+                continue
+            egid = plane["properties"].get("gwr_egid")
+            if egid and known and str(egid) not in known:
+                continue
+            geometry = plane["geometry"]
+            # A meaningful common edge tolerates small survey gaps. Mere
+            # corner contact or a nearby garden/another detached roof does not.
+            connected = geometry.intersection(footprint).area > .5 or (
+                geometry.distance(footprint) <= .35 and
+                geometry.boundary.intersection(footprint.buffer(.35)).length >= 1.5)
+            if connected:
+                members.append(plane)
+                ids.add(plane["id"])
+                if egid:
+                    known.add(str(egid))
+                changed = True
+    return members
+
+
+async def expand_connected_roofs(client, features, click, warnings):
+    """Discover neighbouring roof records and fetch all faces of each section."""
+    initial = feature_planes(features, click)
+    # Only the clicked record's siblings have been fetched so far. Other
+    # records can already appear at the click where roofs overlap.
+    loaded = {initial[0]["properties"].get("building_id")} if initial else set()
+    for _ in range(4):
+        current = connected_roof_members(feature_planes(features, click))
+        if not current:
+            break
+        bounds = unary_union([p["geometry"] for p in current]).bounds
+        minx, miny, maxx, maxy = bounds
+        nearby = await get_json(client, "/MapServer/identify", {
+            "geometry": f"{minx-1},{miny-1},{maxx+1},{maxy+1}",
+            "geometryType": "esriGeometryEnvelope", "layers": "all:" + ROOF_LAYER,
+            "sr": 2056, "geometryFormat": "geojson", "returnGeometry": "true",
+            "tolerance": 0, "mapExtent": f"{minx-10},{miny-10},{maxx+10},{maxy+10}",
+            "imageDisplay": "1000,1000,96", "limit": 1000, "lang": "en"})
+        candidates = feature_planes(features + nearby.get("results", []), click)
+        connected = connected_roof_members(candidates)
+        building_ids = {p["properties"].get("building_id") for p in connected} - loaded - {None}
+        if not building_ids and {p["id"] for p in connected} == {p["id"] for p in current}:
+            break
+        accepted_ids = {p["id"].split(":")[0] for p in connected}
+        features += [f for f in nearby.get("results", [])
+                     if str(f.get("featureId", f.get("id"))) in accepted_ids]
+        if len(loaded | building_ids) > 32:
+            warnings.append("Connected roof complex exceeds the lookup limit. Check the boundary or select a specific roof section.")
+            break
+        for building in sorted(building_ids, key=str):
+            siblings = await get_json(client, "/MapServer/find", {
+                "layer": ROOF_LAYER, "searchField": "building_id", "searchText": str(building),
+                "contains": "false", "sr": 2056, "geometryFormat": "geojson",
+                "returnGeometry": "true", "lang": "en", "limit": 1000})
+            features += siblings.get("results", [])
+        loaded.update(building_ids)
+    else:
+        warnings.append("Connected roof lookup reached its limit. Check that the full roof is outlined.")
+    return features
+
+
 def merge_building(planes: list[dict], click: Point) -> dict | None:
     """Union every Sonnendach plane of the clicked building into one roof outline.
 
@@ -135,11 +215,7 @@ def merge_building(planes: list[dict], click: Point) -> dict | None:
         return None
     anchor = planes[0]
     building = anchor["properties"].get("building_id")
-    members = (
-        [p for p in planes if p["properties"].get("building_id") == building]
-        if building is not None
-        else [anchor]
-    )
+    members = connected_roof_members(planes)
     if len(members) == 1:
         return anchor
     geometries = [p["geometry"] for p in members]
@@ -170,6 +246,9 @@ def merge_building(planes: list[dict], click: Point) -> dict | None:
         "contains_click": True,
         "distance": 0.0,
         "merged_planes": len(members),
+        "member_ids": [p["id"] for p in members],
+        "source_building_ids": sorted({p["properties"].get("building_id") for p in members
+                                       if p["properties"].get("building_id") is not None}, key=str),
         "facets": geometries,
     }
 
@@ -426,6 +505,11 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                         warnings.append(
                             "Other roof planes could not be loaded; the clicked plane is available."
                         )
+            if found and (not selection.roof_id or selection.roof_id.startswith("building:")):
+                try:
+                    features = await expand_connected_roofs(client, features, click, warnings)
+                except (httpx.HTTPError, ValueError, MapServiceError):
+                    warnings.append("Connected roof sections could not all be checked. Verify the outline before using the result.")
             planes = feature_planes(features, click)
             whole = merge_building(planes, click)
             if selection.roof_id:
@@ -440,6 +524,9 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                     )
             else:
                 selected = whole
+            if selected and len(selected.get("source_building_ids", [])) > 1:
+                warnings.append("Included connected roof sections stored under different Sonnendach IDs. "
+                                "This is a physical roof outline, not a verified land-property boundary; check attached neighbouring structures.")
             if selected is not None and selected.get("merged_planes", 1) > 1:
                 warnings.append(
                     f"Loaded {selected['merged_planes']} individual Sonnendach roof faces. "
@@ -453,8 +540,10 @@ async def _prepare_capture(selection: MapSelection) -> dict:
         members = []
         if selected is not None:
             building = selected["properties"].get("building_id")
-            members = ([p for p in planes if p["properties"].get("building_id") == building]
-                       if planes and building is not None and
+            member_ids = set(selected.get("member_ids", []))
+            members = ([p for p in planes if p["id"] in member_ids or
+                        (not member_ids and p["properties"].get("building_id") == building)]
+                       if planes and (building is not None or member_ids) and
                        (not selection.roof_id or selection.roof_id.startswith("building:")) else [selected])
         members.sort(key=lambda p: p["id"])
         before = len(members)
@@ -573,6 +662,23 @@ async def _prepare_capture(selection: MapSelection) -> dict:
         if outline.is_valid:
             already = [Polygon(o["polygon"]) for o in objects]
             already = [p for p in already if p.is_valid]
+            # Arrays first: the segmentation model misses large ones, and a
+            # module field would otherwise be read as a field of rooflights.
+            for array in detect_pv_fields(
+                np.asarray(image), outline, grid["pixels_per_metre"], already
+            ):
+                clipped = array["geometry"].intersection(outline)
+                if clipped.geom_type != "Polygon" or clipped.is_empty:
+                    continue
+                ring = [[round(x, 4), round(y, 4)] for x, y in clipped.exterior.coords]
+                ring = ring[:-1] if ring[0] == ring[-1] else ring
+                if len(ring) < 3:
+                    continue
+                objects.append(
+                    {"polygon": ring, "kind": "existing_pv", "source": "image"}
+                )
+            already = [Polygon(o["polygon"]) for o in objects]
+            already = [p for p in already if p.is_valid]
             for light in detect_rooflights(
                 np.asarray(image), outline, grid["pixels_per_metre"], already
             ):
@@ -613,7 +719,13 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             "An official roof outline can span a whole block and take in its courtyard."
         )
     raised = [o for o in objects if o["source"] == "elevation"]
-    lights = [o for o in objects if o["source"] == "image"]
+    lights = [o for o in objects if o["source"] == "image" and o["kind"] != "existing_pv"]
+    arrays = [o for o in objects if o["source"] == "image" and o["kind"] == "existing_pv"]
+    if arrays:
+        warnings.append(
+            f"Found {len(arrays)} existing PV area(s) by their colour against the roof. "
+            "These are excluded from the new layout; check them against the image."
+        )
     if raised:
         warnings.append(
             f"Measured {len(raised)} raised roof structures from the swisstopo height model."
@@ -643,6 +755,7 @@ async def _prepare_capture(selection: MapSelection) -> dict:
     # Hash the decoded JPEG, exactly as the analyse endpoint receives it.
     decoded = Image.open(io.BytesIO(encoded.getvalue())).convert("RGB")
     captures.put(capture_id, {"faces": faces, "grid": grid, "pv_register": register,
+                 "latitude": selection.latitude, "longitude": selection.longitude,
                  "vintage": vintage,
                  "image_hash": hashlib.sha256(decoded.tobytes()).hexdigest(),
                  "warnings": list(warnings), "default_angle": alignment(geometry) if geometry is not None else 0})
@@ -684,6 +797,8 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             "longitude": selection.longitude,
             "feature_id": selected["id"] if selected else None,
             "building_id": props.get("building_id"),
+            "source_building_ids": selected.get("source_building_ids", [props.get("building_id")]) if selected else [],
+            "selection_basis": "Connected official roof sections; different known EGIDs remain separate" if selection.polygon is None else "User-drawn outline",
             "merged_planes": selected.get("merged_planes", 1) if selected else 0,
             "roof_area_m2": round(all_geometry.area, 2) if all_geometry is not None else None,
             "pitch_deg": props.get("neigung"),

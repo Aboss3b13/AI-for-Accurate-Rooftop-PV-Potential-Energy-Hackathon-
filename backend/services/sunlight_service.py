@@ -13,7 +13,7 @@ from shapely import contains_xy, box
 from shapely.ops import unary_union
 
 RADIUS_M = 120.
-AZIMUTH_STEP_DEG = 5.
+AZIMUTH_STEP_DEG = 2.5
 MAX_SURFACE_SAMPLES = 1500
 
 
@@ -51,7 +51,10 @@ def sampled_sun(latitude, longitude, normal):
 def horizon_angles(points_xyz, heights, minx, maxy, step, radius=RADIUS_M):
     """Horizon above each surface point; missing samples remain unknown."""
     azimuths = np.radians(np.arange(0, 360, AZIMUTH_STEP_DEG))
-    distances = np.arange(1.5, radius+.01, 1.)
+    # Match DSM detail near the roof so short chimneys are not skipped between
+    # metre-spaced rays. Far-field spacing bounds the interactive workload.
+    distances = np.unique(np.concatenate((np.arange(.5, 20., .5), np.arange(20., radius+.01, 1.))))
+    distances = distances[distances <= radius]
     dx = np.sin(azimuths)[:, None]*distances
     dy = np.cos(azimuths)[:, None]*distances
     horizons, coverage = [], []
@@ -62,8 +65,8 @@ def horizon_angles(points_xyz, heights, minx, maxy, step, radius=RADIUS_M):
         inside = (rows >= 0) & (cols >= 0) & (rows < heights.shape[0]) & (cols < heights.shape[1])
         z = heights[np.clip(rows, 0, heights.shape[0]-1), np.clip(cols, 0, heights.shape[1]-1)]
         valid = inside & np.isfinite(z)
-        # 35 cm combines a small panel standoff and raster uncertainty allowance.
-        angle = np.arctan2(z-points[:, 2, None, None]-.35, distances)
+        # 15 cm panel standoff plus 10 cm DSM uncertainty allowance.
+        angle = np.arctan2(z-points[:, 2, None, None]-.25, distances)
         angle = np.where(valid, angle, -np.pi/2)
         horizons.append(np.maximum(0, angle.max(axis=2)))
         coverage.append(valid.mean(axis=2))
@@ -71,12 +74,13 @@ def horizon_angles(points_xyz, heights, minx, maxy, step, radius=RADIUS_M):
 
 
 def analyse_sunlight(geometry, plane, terrain, latitude, longitude):
+    anchor = plane.diagnostics.get("height_anchor")
     if terrain is None or not plane.describe()["height_is_absolute"]:
         return {"available": False, "reason": "No reliable absolute roof height or surrounding DSM.", "radius_m": RADIUS_M}
     local = plane.local_geometry(geometry)
     if local.is_empty:
         return {"available": False, "reason": "Empty roof face.", "radius_m": RADIUS_M}
-    cell = max(1., math.sqrt(local.area/MAX_SURFACE_SAMPLES))
+    cell = max(.5, math.sqrt(local.area/MAX_SURFACE_SAMPLES))
     minx, miny, maxx, maxy = local.bounds
     # Bounding-box area, rather than polygon area, bounds work on narrow faces.
     cell = max(cell, math.sqrt((maxx-minx)*(maxy-miny)/MAX_SURFACE_SAMPLES))
@@ -98,10 +102,11 @@ def analyse_sunlight(geometry, plane, terrain, latitude, longitude):
     winter = np.isin(months, [11, 12, 1, 2])
     winter_score = (visible[:, winter]*weights[winter]).sum(axis=1)/weights[winter].sum() if winter.any() else None
     return {"available": bool(known.any()), "reason": None if known.any() else "Surrounding height coverage is incomplete.",
+            "height_anchor": anchor,
             "radius_m": RADIUS_M, "cell_size_m": cell, "azimuth_step_deg": AZIMUTH_STEP_DEG,
             "representative_days": 12, "sun_samples": len(weights),
             "coverage_fraction": float(known.mean()), "local_x": s, "local_y": t,
-            "access": score, "known": known,
+            "access": score, "known": known, "horizons": horizons, "direction_coverage": coverage,
             "mean_direct_sun_access": float(score[known].mean()) if known.any() else None,
             "winter_direct_sun_access": float(winter_score[known].mean()) if winter_score is not None and known.any() else None,
             "method": "DSM horizon rays; incidence-weighted direct sun on 12 representative days, not annual energy loss"}
@@ -118,4 +123,25 @@ def sunlight_exclusions(profile, roof, minimum_access):
 
 
 def public_sunlight(profile):
-    return {k: v for k, v in profile.items() if k not in {"local_x", "local_y", "access", "known"}}
+    return {k: v for k, v in profile.items() if k not in {"local_x", "local_y", "access", "known", "horizons", "direction_coverage"}}
+
+
+def instantaneous_shadow(profile, roof, normal, ray):
+    """Reuse cached horizons for a single sun direction; return shade and unknown."""
+    empty = roof.difference(roof)
+    if "horizons" not in profile:
+        return empty, roof
+    if ray[2] <= 0 or float(np.dot(normal, ray)) <= 0:
+        return roof, empty
+    azimuth = math.degrees(math.atan2(ray[0], ray[1])) % 360
+    index = round(azimuth / AZIMUTH_STEP_DEG) % profile["horizons"].shape[1]
+    known = profile["direction_coverage"][:, index] >= .98
+    blocked = known & (math.asin(float(np.clip(ray[2], -1, 1))) <= profile["horizons"][:, index])
+    half = profile["cell_size_m"] / 2
+
+    def cells(mask):
+        return unary_union([box(x-half, y-half, x+half, y+half)
+            for x, y in zip(profile["local_x"][mask], profile["local_y"][mask])]).intersection(roof)
+
+    # Unsampled slivers are also unknown, never silently clear.
+    return cells(blocked), roof.difference(cells(known))

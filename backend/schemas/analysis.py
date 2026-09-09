@@ -15,7 +15,7 @@ class PanelConfig(BaseModel):
 class MarkedObject(BaseModel):
     source: Literal["manual", "map", "elevation", "image", "terrain"] = "manual"
     polygon: list[Point] = Field(min_length=3, max_length=200)
-    kind: Literal["existing_pv", "chimney", "skylight", "other_obstacle"] = (
+    kind: Literal["existing_pv", "chimney", "skylight", "rwa", "other_obstacle"] = (
         "other_obstacle"
     )
     # Metres the superstructure rises above its roof face, when measured.
@@ -47,6 +47,7 @@ class AnalysisSettings(BaseModel):
     objects: list[MarkedObject] = Field(default_factory=list, max_length=500)
     angle: float = Field(0, ge=-180, le=180)
     annual_specific_yield: float | None = Field(None, ge=0, le=3000)
+    performance_ratio: float = Field(0.8, ge=0.1, le=1)
     edge_margin: float = Field(0.3, ge=0, le=3)
     obstacle_margin: float = Field(0.4, ge=0, le=3)
     pv_margin: float = Field(0.2, ge=0, le=3)

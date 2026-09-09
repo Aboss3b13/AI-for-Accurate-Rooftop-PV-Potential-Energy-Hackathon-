@@ -10,6 +10,40 @@ from backend.services.map_service import (
 router = APIRouter(prefix="/api/map", tags=["Swiss satellite map"])
 
 
+@router.get("/shadow/{capture_id}")
+def shadow(capture_id: str, month: int = Query(default=6, ge=1, le=12),
+           hour_utc: float = Query(default=12, ge=0, le=23.5)):
+    """Illustrative shadows on the original surveyed faces; no energy adjustment."""
+    from datetime import date
+    import numpy as np
+    from shapely import make_valid
+    from shapely.geometry import mapping
+    from shapely.ops import transform, unary_union
+    from backend.services.runtime_cache import captures
+    from backend.services.surface_analysis import GeoReference
+    from backend.services.sunlight_service import solar_position, instantaneous_shadow
+    context = captures.get(capture_id)
+    if context is None:
+        raise HTTPException(410, "Map capture expired. Select the building again.")
+    if "latitude" not in context:
+        raise HTTPException(422, "Recapture this roof to enable the sun preview.")
+    ray = solar_position(context["latitude"], context["longitude"],
+                         date(2025, month, 21).timetuple().tm_yday, np.array([hour_utc]))[0]
+    shade, unknown = [], []
+    for face in context["faces"]:
+        plane = face["plane"]
+        a, b = instantaneous_shadow(face.get("sunlight", {}),
+            plane.local_geometry(face["geometry"]), plane.normal, ray)
+        shade.append(make_valid(plane.world_geometry(a)))
+        unknown.append(make_valid(plane.world_geometry(b)))
+    geo = GeoReference(context["grid"])
+    return {"shade": mapping(transform(geo.pixel, unary_union(shade))),
+            "unknown": mapping(transform(geo.pixel, unary_union(unknown))),
+            "sun_elevation_deg": round(float(np.degrees(np.arcsin(ray[2]))), 1),
+            "month": month, "hour_utc": hour_utc,
+            "note": "Representative 21st day; original roof geometry and static DSM. Annual energy is unchanged."}
+
+
 @router.get("/search")
 async def search(q: str = Query(min_length=2, max_length=160)):
     if len(q.split()) > 10:

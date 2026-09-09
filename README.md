@@ -27,23 +27,63 @@ Not "roof area ÷ panel area". SolarFit lays out **real rectangular panels** on 
 | Subtract them from Sonnendach's potential | Every face is screened, then obstacles, shade and margins are removed |
 | Produce a **realistic installable capacity** | Real modules are packed into what is left, and reported in kWp and kWh/year |
 
-The headline output is the comparison itself — the official figure beside the
-one you could actually build, and a line-by-line account of the difference:
+The result distinguishes **Sonnendach theoretical roof potential** (inclined roof
+area and source-model annual yield) from **SolarFit additional potential** (new
+modules, kWp and estimated annual production). These have different definitions;
+a percentage difference is not an accuracy improvement or installation approval.
+The area breakdown explains occupancy, screening and unused surface under the
+selected planning settings.
 
-```text
-Sonnendach says          756.5 m²      120,089 kWh/year
-Actually installable      65.9 m²       14,598 kWh/year     −88%
+### Research recommendations implemented
 
-Where the roof goes
-  Faces not worth covering        359.3 m²   north-facing or too shaded
-  Chimneys, windows, structures    35.5 m²
-  In shade too much of the day      8.1 m²
-  Edge margins & module fit       287.4 m²
-```
+Existing features include official roof-face geometry, robust DSM fitting with
+adaptive residual thresholds, PV detection, rooflight heuristics, manual edits,
+EGID/PV-register corroboration, survey dates, input confidence and local shade
+screening. Annual energy continues to use Sonnendach irradiation without applying
+a second shade multiplier.
 
-Measured on a real Zurich building. Sonnendach rates the whole roof; more than
-half of it faces north or sits under 800 kWh/m², and what remains still has to
-hold rectangular modules around six chimneys and twenty roof windows.
+The performance ratio is configurable (default **0.80**) in advanced settings.
+A supplied specific yield overrides it. Energy is panel count times module kWp
+times annual irradiation times performance ratio; zero irradiation gives zero energy.
+
+Use **Mark smoke / heat exhaust (RWA)** for a confirmed exhaust opening. Its
+**2 m advisory clearance** remains in every packing mode, including Maximum,
+and can exclude space on neighbouring faces. Ordinary skylights are not inferred
+to be exhaust openings. This implements the simple clearance approach in
+[VKF 2001-15, 2022 edition, appendix page 14](https://services.vkg.ch/rest/public/georg/bs/publikation/documents/BSPUB-1394520214-197.pdf/content).
+Alternative opening envelopes, snow conditions and site applicability need review.
+The result and JSON export distinguish effective installer margins from this
+advisory rule and list unassessed requirements. They do not certify compliance.
+
+Validation: 137 automated backend tests and the frontend HTTP regression test pass, including panel clearance across packing
+modes, neighbouring-space exclusions, energy assumptions and physical-preview
+area accounting. The production frontend builds successfully. These checks do
+not establish real-roof detection precision/recall: a geographically separated,
+reviewed reference set is still needed for empirical accuracy claims.
+
+The roof editor now includes **Explore local shadows**, with a representative
+date and half-hour UTC slider. It reuses cached DSM horizons and leaves annual
+energy unchanged. Run `python -m scripts.benchmark_roofs` for fixed-roof placement
+checks, measured first-pass/warm timings and offline result snapshots, and
+`python -m training.evaluate_pixels` for held-out PV pixel IoU/F1/recall.
+See the [implementation evidence and demo runbook](docs/research-implementation.md)
+for measured results, limitations and optional CPU Docker deployment.
+
+Whole-roof selection now follows connected roof sections across Sonnendach
+building IDs. It retains separate faces for fitting, excludes detached nearby
+roofs, and respects different known EGIDs. Where identity is missing, a shared
+roof edge is used and the result asks you to verify attached structures; this
+does not determine legal land-property boundaries. The Suhr screenshot regression
+now captures approximately 259 m² across 12 faces, rather than 106 m² across four.
+
+PV detection uses a full-image pass plus overlapping crops for captures larger
+than 768 pixels, merging repeated masks before exclusions. This retains detail
+for small arrays without retraining; accuracy gains still need labelled evaluation.
+Local shadows now sample roof surfaces down to 0.5 m, use 2.5-degree directional
+bins, and sample obstacles every 0.5 m within 20 m. Results include each panel's
+3D corners and roof normal alongside its 2D projection; absolute coordinates are
+unknown when roof height is unavailable. Annual production retains official
+shading-aware irradiation, without applying a second shadow multiplier.
 
 ## Why it's different
 
@@ -242,6 +282,26 @@ Imagery:   survey year 2019
 Sources more than three years apart are flagged too, and so is imagery old
 enough that recent building work would be invisible.
 
+### Shade on every face that can carry it
+
+Shade screening needs to know how high a roof sits, not how well its slope was
+recovered. The strict test — twelve height cells, forty per cent of them within
+35 cm of the deck — was refusing small and noisy faces, and those faces were
+then packed with **no shade screening at all**, which is worse than an
+approximate answer. Measured over five Zurich roofs, that was 41 of 114 faces.
+
+A face that fails the strict test now takes an approximate anchor from the
+median of its own height samples, and says so: the result carries the anchor
+quality, and the face gains a caution rather than silently looking certain.
+
+```text
+shade analysis on faces      64%  ->  80%
+                             (73 measured, 18 approximate)
+```
+
+Faces with fewer than six height samples are still refused outright. An
+approximate answer is worth having; an invented one is not.
+
 ### Confidence per input, not one headline number
 
 There is no single accuracy figure for a result assembled from measurements,
@@ -347,7 +407,7 @@ If neither official angles nor a reliable DSM plane are available, the face keep
 
 Both objectives operate after suitability screening. **Maximum capacity** fills eligible layouts. **Maximum annual energy** prioritises higher-yield faces under a panel limit. Without a limit or demand target, both use the same eligible space. An entered annual demand target also limits the layout and prioritises yield. Comparison cards show actual allocations, not illustrative numbers.
 
-Sonnendach `mstrahlung` is annual face-average irradiation in kWh/m^2, not electrical yield. SolarFit derives a planning yield as `mstrahlung * 0.80` kWh/kWp/year, using the performance ratio in the [official BFE data model, pp. 11-12](https://pubdb.bfe.admin.ch/fr/publication/download/9665). New annual electricity is `new kWp * specific yield`. The selected module's rating determines capacity. Face-average irradiation includes the source model's shading, but SolarFit does not recompute local shadows or electrical losses. A user-supplied yield overrides this estimate for all faces. No irradiation means no invented energy value. Suitability classes and irradiation can also be inspected as a map layer.
+Sonnendach `mstrahlung` is annual face-average irradiation in kWh/m^2, not electrical yield. SolarFit derives a planning yield as `mstrahlung * 0.80` kWh/kWp/year, using the performance ratio in the [official BFE data model, pp. 11-12](https://pubdb.bfe.admin.ch/fr/publication/download/9665). New annual electricity is `new kWp * specific yield`. The selected module's rating determines capacity. Face-average irradiation includes the source model's shading, while the local shadow preview remains separate from annual electricity and electrical losses. A user-supplied yield overrides this estimate for all faces. No irradiation means no invented energy value. Suitability classes and irradiation can also be inspected as a map layer.
 
 ### Caching and diagnostics
 
@@ -373,6 +433,39 @@ Brugg           236.4      2     1         5.5    2.3  2.5 m
 ```
 
 If the height model cannot be reached, the app says so and carries on without it.
+
+### Existing arrays: colour, because the model missed them
+
+The trained checkpoint scores well on its own test split and still missed large
+arrays on real captures. On a Binzstrasse warehouse whose roof is half covered
+in modules it returned three small patches, and **396 new modules were proposed
+straight on top of the existing array**.
+
+Silicon under anti-reflective coating is strongly blue where clay, concrete,
+gravel and bitumen are red- or brown-dominant, so an array separates from its
+own roof on the blue-minus-red axis. The split is found with Otsu rather than a
+fixed cut, and unlike the rooflight test it is made against the whole roof: an
+array is metres across, and a local background subtraction cancels exactly the
+large uniform regions being looked for.
+
+```text
+Binzstrasse warehouse    before          after
+existing PV found        259 m²          1,822 m²
+modules proposed         396             259
+```
+
+Otsu always splits, so the result is only believed when three things hold: the
+bright class is blue in **absolute** terms (+18, where a plain roof's bluer half
+sits near zero), the two classes are genuinely distinct, and each region is a
+**compact, textured block**. Modules carry cell and frame lines, so an array is
+never smoother than its roof — that rejects blue-grey sheeting — and a real
+array is solid, which rejects the bluish parapet band that a flat Oerlikon roof
+otherwise offered up as a 74 m² "array".
+
+It is a colour rule, not a trained detector, and it is used **alongside** the
+model rather than instead of it. On a sawtooth roof the north-light glazing is
+blue too and gets included: excluded from the layout either way, but labelled
+as PV rather than as glazing.
 
 ### Roof windows: the half the height model cannot see
 
@@ -454,7 +547,7 @@ SolarFit is an **honest estimate, not an installation plan.**
 - **The AI itself only knows solar panels.** The shipped model was trained on Swiss data labelling PV only. Obstacles come from the height model and from you, not from the image model.
 - **Trees count as obstacles.** The height model records the surface, vegetation included, so a branch overhanging the roof is excluded like any other obstruction. That is usually what you want; it is not always what you expect.
 - **The height model has its own date.** It, the roof map and the aerial photo are three separate surveys and may disagree about a recent building.
-- **This is planning-level geometry.** Pitch and individual faces are modelled where DSM fits are reliable. Structural loads, detailed local shadows, electrical design and legal setback compliance are not assessed.
+- **This is planning-level geometry.** Pitch and individual faces are modelled where DSM fits are reliable. Structural loads, hourly weather-dependent shading, electrical design and legal setback compliance are not assessed.
 - **Safety margins are assumptions**, not your municipality's rules.
 - **Aerial photos age.** The roof map and the photo may be from different years.
 
@@ -580,7 +673,7 @@ The search selects the best tested regular grid, not the mathematical global opt
 
 Detection scores are uncalibrated model confidences and do not measure probability that a roof is safe or that every obstacle was found. Capacity accuracy needs measured roof and installation ground truth, which this dataset does not supply. Annual energy is omitted where neither official irradiation nor a supplied yield is available.
 
-Next: labelled obstacle training data, larger regional validation sets, sub-face shadow modelling and installation-survey comparisons. No external solar API, cloud hosting or upload storage is required by this local prototype.
+Next: labelled obstacle training data, larger regional validation sets, hourly radiation modelling and installation-survey comparisons. No external solar API, cloud hosting or upload storage is required by this local prototype.
 
 ## Sources and licensing
 
