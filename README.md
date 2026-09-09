@@ -213,6 +213,56 @@ vision model is kept for the two things nobody records.
 The result panel carries this table for the roof you are looking at, so the
 strength of every number is visible rather than implied.
 
+### Five sources, five survey dates
+
+None of these datasets was surveyed on the same day. swisstopo flies imagery
+and the height model on multi-year cycles, the plant register updates monthly,
+and Sonnendach carries its own revision date. Two perfectly correct sources can
+therefore describe different buildings.
+
+Every analysis now reports the age of what it used:
+
+```text
+Aerial 2025 · Height model 2024 · Roof record 2021-12-03 · Plant register monthly
+```
+
+One disagreement actually costs a user money, so it is checked explicitly: an
+array commissioned **after** the aerial survey cannot appear in it. The detector
+is not wrong to miss it, and the roof is not as empty as the photograph makes it
+look.
+
+```text
+Register:  installation commissioned 2021
+Imagery:   survey year 2019
+→ "An installation registered in 2021 is newer than the 2019 aerial survey,
+   so it cannot appear in this image (25.5 kW). Treat the roof as more
+   occupied than the photograph shows."
+```
+
+Sources more than three years apart are flagged too, and so is imagery old
+enough that recent building work would be invisible.
+
+### Confidence per input, not one headline number
+
+There is no single accuracy figure for a result assembled from measurements,
+calculations and one inference, so none is invented. Each input carries its own:
+
+| Input | Level | Why |
+|---|---|---|
+| Roof geometry | High | Official Sonnendach faces |
+| Roof-plane fit | High | Fitted to the 0.5 m height model |
+| Aerial freshness | Varies | From the tile's own survey year |
+| Existing PV presence | High / Low | Register entry, or none — and absence proves little |
+| Existing PV position | **Medium, always** | No dataset records where panels sit |
+| Raised structures | High | Measured against each face's own plane |
+| Flush rooflights | Medium | Colour heuristic; no height signal exists |
+| Local shading | Medium | Static height model, not an hourly simulation |
+| Structural capacity | Not assessed | Needs construction details |
+| Regulatory compliance | Not assessed | Clearances are planning assumptions |
+
+Existing PV position can never be high, whatever the model reports, because
+nothing measures it.
+
 ### The register and the image check each other
 
 The [SFOE register of electricity production plants](https://www.bfe.admin.ch/fr/installations-production-electrique)

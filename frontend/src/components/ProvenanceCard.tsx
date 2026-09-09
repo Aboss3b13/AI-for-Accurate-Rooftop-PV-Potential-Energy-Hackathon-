@@ -14,6 +14,8 @@ const KIND_LABEL: Record<string, string> = {
 export default function ProvenanceCard({ result }: { result: Analysis }) {
   const [open, setOpen] = useState(false);
   const rows = result.data_provenance;
+  const vintage = result.vintage;
+  const confidence = result.input_confidence;
   if (!rows?.length) return null;
   const counts = rows.reduce<Record<string, number>>((acc, r) => {
     acc[r.kind] = (acc[r.kind] ?? 0) + 1;
@@ -45,6 +47,39 @@ export default function ProvenanceCard({ result }: { result: Analysis }) {
             they cannot be observed any other way.
           </Help>
         </p>
+      )}
+      {open && vintage && (
+        <div className="vintage-row">
+          <span>
+            Aerial <b>{vintage.imagery_year ?? "?"}</b>
+          </span>
+          <span>
+            Height model <b>{vintage.surface_year ?? "?"}</b>
+          </span>
+          {vintage.roof_data_updated && (
+            <span>
+              Roof record <b>{vintage.roof_data_updated}</b>
+            </span>
+          )}
+          <span>
+            Plant register <b>monthly</b>
+          </span>
+        </div>
+      )}
+      {open && !!confidence?.length && (
+        <ul className="confidence-list">
+          {confidence.map((row) => (
+            <li key={row.input}>
+              <span className={`level level-${row.level.replace(/\s+/g, "-")}`}>
+                {row.level}
+              </span>
+              <div>
+                <strong>{row.input}</strong>
+                <small>{row.note}</small>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
       {open && (
         <ul className="provenance-list">

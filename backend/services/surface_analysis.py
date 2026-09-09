@@ -15,6 +15,7 @@ from backend.services.energy_service import capacity
 from backend.services.confidence_service import summarise_confidence
 from backend.services.sunlight_service import sunlight_exclusions, public_sunlight
 from backend.services.suitability_service import assess_face, dimensions, grouped_panels, building_assessment, sonnendach_comparison, data_provenance
+from backend.services import vintage_service
 
 TO_WGS84 = Transformer.from_crs(2056, 4326, always_xy=True)
 
@@ -130,6 +131,7 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
     # The register says whether an array exists; the image says where. Each is
     # blind where the other sees, so disagreement is worth stating plainly.
     register = context.get("pv_register") or {}
+    vintage = context.get("vintage") or {}
     geo = GeoReference(context["grid"])
     warnings = list(dict.fromkeys(context["warnings"] + warnings))
     ids = {f["id"] for f in context["faces"]}
@@ -318,6 +320,10 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
             "proposed_panels": image_panels,
             "pv_register": register,
             "data_provenance": data_provenance(register, faces, display_objects, model),
+            "vintage": vintage,
+            "input_confidence": vintage_service.confidence(
+                vintage, register,
+                sum(1 for f in faces if f["plane"].source != "projected_2d"), len(faces)),
             "existing_pv": [o for o in display_objects if o["kind"] == "existing_pv"],
             "obstacles": [o for o in display_objects if o["kind"] != "existing_pv"],
             "faces": public_faces, "map_overlay": {"type": "FeatureCollection", "features": features},

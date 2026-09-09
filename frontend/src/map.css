@@ -773,3 +773,74 @@
   margin-top: 3px;
   line-height: 1.55;
 }
+
+/* Survey dates, and confidence attached to each input. */
+.vintage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.vintage-row span {
+  font-size: 9.5px;
+  color: #7d8d72;
+  background: #f2f6ec;
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+.vintage-row b {
+  color: #294b36;
+}
+.confidence-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  border-top: 1px solid #eef2e8;
+  padding-top: 12px;
+}
+.confidence-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 8px;
+}
+.confidence-list .level {
+  flex: 0 0 auto;
+  min-width: 74px;
+  text-align: center;
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 5px;
+  padding: 4px 5px;
+  background: #eef2e8;
+  color: #6d7c66;
+}
+.confidence-list .level-high {
+  background: #dff0cd;
+  color: #40632c;
+}
+.confidence-list .level-medium {
+  background: #fbf0d4;
+  color: #8a6d2f;
+}
+.confidence-list .level-low {
+  background: #f7dfd4;
+  color: #9a5533;
+}
+.confidence-list .level-not-assessed {
+  background: #eceff2;
+  color: #6c7883;
+}
+.confidence-list strong {
+  display: block;
+  font-size: 11px;
+  color: #294b36;
+}
+.confidence-list small {
+  display: block;
+  font-size: 9.5px;
+  color: #9baa8f;
+  line-height: 1.5;
+  margin-top: 2px;
+}

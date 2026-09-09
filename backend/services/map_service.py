@@ -24,6 +24,7 @@ from backend.services.roof_plane import RoofPlane, official_plane
 from backend.services.runtime_cache import captures, prepared, geodata, imagery
 from backend.services.rooflight_service import detect as detect_rooflights
 from backend.services.pv_register_service import RegisterUnavailable, registered_pv
+from backend.services import vintage_service
 
 API = "https://api3.geo.admin.ch/rest/services/ech"
 ROOF_LAYER = "ch.bfe.solarenergie-eignung-daecher"
@@ -515,6 +516,24 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             )
         encoded = io.BytesIO()
         image.save(encoded, format="JPEG", quality=95)
+        # How old each source is. Five datasets answer for one roof and none
+        # were surveyed on the same day.
+        west, south = TO_WGS84.transform(grid["bbox"][0], grid["bbox"][1])
+        east, north = TO_WGS84.transform(grid["bbox"][2], grid["bbox"][3])
+        surface_years = [
+            vintage_service.tile_year(href)
+            for plane in model_planes
+            for href in (plane.diagnostics.get("height_tiles") or [])
+        ]
+        vintage = {
+            "imagery_year": await vintage_service.imagery_year(
+                client, (west, south, east, north)
+            ),
+            "surface_year": max([y for y in surface_years if y], default=None),
+            "roof_data_updated": (selected["properties"].get("datum_aenderung")
+                                  if selected else None),
+            "register_updated": "monthly",
+        }
         # What Switzerland already records as installed, before any detection.
         register = {"known": False, "plant_count": 0, "total_power_kw": None,
                     "plants": [], "egids": [],
@@ -617,16 +636,20 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             + ". The register holds capacity, not position, so where the panels sit "
             "still comes from the image."
         )
+    for note in vintage_service.findings(vintage, register):
+        warnings.append(note)
     capture_id = uuid.uuid4().hex
     faces = [{**p, "plane": plane, "sunlight": sun} for p, plane, sun in zip(members, model_planes, sunlight)]
     # Hash the decoded JPEG, exactly as the analyse endpoint receives it.
     decoded = Image.open(io.BytesIO(encoded.getvalue())).convert("RGB")
     captures.put(capture_id, {"faces": faces, "grid": grid, "pv_register": register,
+                 "vintage": vintage,
                  "image_hash": hashlib.sha256(decoded.tobytes()).hexdigest(),
                  "warnings": list(warnings), "default_angle": alignment(geometry) if geometry is not None else 0})
     return {
         "capture_id": capture_id,
         "pv_register": register,
+        "vintage": vintage,
         "roof_faces": [{**public_plane(p), "roof": pixel_ring(p["geometry"].exterior.coords, grid),
                         "plane": plane.describe()} for p, plane in zip(members, model_planes)],
         "image_base64": base64.b64encode(encoded.getvalue()).decode(),

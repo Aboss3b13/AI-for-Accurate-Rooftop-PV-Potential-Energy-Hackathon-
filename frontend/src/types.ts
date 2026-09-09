@@ -43,6 +43,13 @@ export type Analysis = {
     basis: string;
     coverage_note: string;
   };
+  vintage?: {
+    imagery_year: number | null;
+    surface_year: number | null;
+    roof_data_updated: string | null;
+    register_updated: string | null;
+  };
+  input_confidence?: { input: string; level: string; note: string }[];
   data_provenance?: {
     fact: string;
     kind: "measured" | "calculated" | "inferred" | "supplied";
