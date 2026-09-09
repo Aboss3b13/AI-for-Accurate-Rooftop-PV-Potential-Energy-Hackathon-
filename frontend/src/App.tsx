@@ -353,6 +353,8 @@ export default function App() {
         );
       if (id === request.current) {
         setResult(data);
+        setSourceView("editor");
+        setOriginal(false);
         setAuto(true);
         setComparisons((c) => ({
           ...c,

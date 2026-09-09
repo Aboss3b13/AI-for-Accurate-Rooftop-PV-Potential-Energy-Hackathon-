@@ -82,8 +82,9 @@ The console window keeps the full error text on screen — it waits for a keypre
 1. Search a Swiss address, or drag the map to the building.
 2. Zoom in until you can see individual roofs.
 3. **Click the roof.** That's it.
+4. When analysis finishes, SolarFit automatically opens the aerial picture in **Roof editor**, with proposed panels and analysis overlays ready to review and adjust.
 
-SolarFit retrieves **individual official roof faces**, fits their planes from swissSURFACE3D, downloads a calibrated aerial patch, finds existing PV and obstacles, and packs each face in **true roof-surface metres**. Proposed modules appear directly on the satellite map. A merged outline is retained only for overview/editing; it is never the packing surface.
+SolarFit retrieves **individual official roof faces**, fits their planes from swissSURFACE3D, downloads a calibrated aerial patch, finds existing PV and obstacles, and packs each face in **true roof-surface metres**. The completed result opens as a picture in the roof editor. You can switch back to **Satellite map** to see the same proposed modules over the live map or select another building. A merged outline is retained only for overview/editing; it is never the packing surface.
 
 All faces are analysed in one click. Select a face on the map or in **Inspect** to see its pitch, compass azimuth, projected/surface area, usable space, PV regions, obstacles, panels and capacity. Inspection reuses the completed result; it does not download or run AI again. Choose **Whole building** to see the total.
 
