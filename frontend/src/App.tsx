@@ -1,5 +1,6 @@
 import AnalysisPanel from "./components/AnalysisPanel";
 import SatelliteMap from "./components/SatelliteMap";
+import RoofFaces from "./components/RoofFaces";
 import MapContext from "./components/MapContext";
 import Help from "./components/Help";
 import { prepareMapCapture, type MapCapture, type MapPick } from "./mapTypes";
@@ -50,6 +51,12 @@ type Example = {
 
 export default function App() {
   const [sourceView, setSourceView] = useState<"map" | "editor">("map");
+  const [inspectedFace, setInspectedFace] = useState("");
+  const [editedFace, setEditedFace] = useState("");
+  const [buildingOverride, setBuildingOverride] = useState<Point[] | null>(null);
+  const [faceOverrides, setFaceOverrides] = useState<Record<string, Point[]>>({});
+  const [objective, setObjective] = useState<"capacity" | "energy">("capacity");
+  const [panelLimit, setPanelLimit] = useState("");
   const [mapCapture, setMapCapture] = useState<MapCapture | null>(null);
   const [mapBusy, setMapBusy] = useState(false),
     [mapError, setMapError] = useState("");
@@ -113,6 +120,7 @@ export default function App() {
     verified,
     angle,
     yieldValue,
+    objective, panelLimit,
     ai,
     edge,
     obstacleMargin,
@@ -174,7 +182,9 @@ export default function App() {
       if (image.width * image.height > 25_000_000)
         throw Error("Crop the image to less than 25 megapixels.");
       setFile(f);
-      setSourceView("editor");
+      setSourceView(fromMap ? "map" : "editor");
+      setInspectedFace(""); setEditedFace(""); setFaceOverrides({}); setBuildingOverride(null);
+      setObjective("capacity"); setPanelLimit("");
       setMapCapture(null);
       setMapEdited(false);
       setPendingMapAnalysis(false);
@@ -232,6 +242,7 @@ export default function App() {
       setAngle(capture.angle);
       setYield("");
       setTool(capture.roof.length > 2 ? "view" : "roof");
+      if (capture.roof.length < 3) setSourceView("editor");
       setPendingMapAnalysis(capture.roof.length > 2);
     } catch (e) {
       if (!controller.signal.aborted)
@@ -257,6 +268,18 @@ export default function App() {
     setDraft([]);
     setOriginal(false);
   }
+  function changeRoof(p: Point[]) {
+    setRoof(p);
+    setMapEdited(true);
+    if (editedFace) setFaceOverrides(previous => ({ ...previous, [editedFace]: p }));
+    else if (mapCapture) setBuildingOverride(p);
+  }
+  function editInspectedFace() {
+    const face = mapCapture?.roof_faces.find(f => f.id === inspectedFace);
+    setEditedFace(face?.id || "");
+    setRoof(face ? faceOverrides[face.id] || face.roof : buildingOverride || mapCapture?.roof || roof);
+    setSourceView("editor"); setTool("view"); setDraft([]);
+  }
   function finish(p: Point[]) {
     if (tool === "scale") {
       setMeasurement(p);
@@ -267,8 +290,7 @@ export default function App() {
     } else if (p.length >= 3) {
       invalidate();
       if (tool === "roof") {
-        setRoof(p);
-        setMapEdited(true);
+        changeRoof(p);
       } else setObjects([...objects, { polygon: p, kind: tool as Kind }]);
     }
     setDraft([]);
@@ -289,13 +311,19 @@ export default function App() {
     abort.current = controller;
     setBusy(true);
     setError("");
-    setResult(null);
     const form = new FormData();
     form.append("image", file);
     form.append(
       "settings",
       JSON.stringify({
         roof,
+        capture_id: mapCapture?.roof_faces.length ? mapCapture.capture_id : null,
+        boundary_edited: mapEdited,
+        edited_face_id: editedFace || null,
+        face_overrides: faceOverrides,
+        building_override: buildingOverride,
+        objective: mapCapture ? objective : "capacity",
+        max_panels: mapCapture && panelLimit ? Number(panelLimit) : null,
         objects,
         mode,
         panel,
@@ -356,11 +384,12 @@ export default function App() {
     verified,
     angle,
     yieldValue,
+    objective, panelLimit,
     ai,
     edge,
     obstacleMargin,
     pvMargin,
-    draft.length,
+    draft.length, buildingOverride, mapCapture, mapEdited, editedFace, faceOverrides, objective, panelLimit,
   ]);
   useEffect(() => {
     if (pendingMapAnalysis && file && roof.length > 2) {
@@ -372,8 +401,7 @@ export default function App() {
     if (!auto) return;
     request.current++;
     abort.current?.abort();
-    setBusy(false);
-    setResult(null);
+    setBusy(true);
     const timer = setTimeout(() => void analyse(), 450);
     return () => clearTimeout(timer);
   }, [
@@ -384,6 +412,7 @@ export default function App() {
     verified,
     angle,
     yieldValue,
+    objective, panelLimit,
     ai,
     edge,
     obstacleMargin,
@@ -409,7 +438,10 @@ export default function App() {
         JSON.stringify(
           {
             ...result,
-            input: { roof, objects, panel, mode, angle },
+            input: { roof, objects, panel, mode, angle, objective, max_panels: panelLimit || null,
+              face_overrides: faceOverrides, building_override: buildingOverride,
+              pixels_per_metre: ppm, annual_specific_yield: yieldValue || null,
+              edge_margin: edge, obstacle_margin: obstacleMargin, pv_margin: pvMargin },
             map_provenance: mapCapture?.provenance ?? null,
             boundary_adjusted: mapEdited,
           },
@@ -501,10 +533,19 @@ export default function App() {
             <SatelliteMap
               visible={sourceView === "map"}
               onPick={pickMapRoof}
-              busy={mapBusy}
-              error={mapError}
+              busy={mapBusy || busy}
+              phase={mapBusy ? "Loading official faces, aerial imagery and roof height model" : "Analysing imagery and optimising each roof surface"}
+              error={mapError || error}
               capture={mapCapture}
+              result={result}
+              layers={layers}
+              setLayers={setLayers}
+              inspectedFace={inspectedFace}
+              onInspect={setInspectedFace}
             />
+            {result?.faces && <RoofFaces result={result} selected={inspectedFace} onSelect={setInspectedFace}
+              onEdit={editInspectedFace} objective={objective} setObjective={setObjective}
+              limit={panelLimit} setLimit={setPanelLimit} busy={busy || mapBusy} />}
             {sourceView === "editor" && mapCapture && (
               <MapContext
                 capture={mapCapture}
@@ -514,6 +555,7 @@ export default function App() {
                 onReset={() => {
                   invalidate();
                   setRoof(mapCapture.roof);
+                  setEditedFace(""); setFaceOverrides({}); setBuildingOverride(null);
                   setAngle(mapCapture.angle);
                   setMapEdited(false);
                   setTool("view");
@@ -567,8 +609,7 @@ export default function App() {
                       onFinish={finish}
                       onRoofChange={(p) => {
                         invalidate();
-                        setMapEdited(true);
-                        setRoof(p);
+                        changeRoof(p);
                       }}
                       measurement={measurement}
                     />
@@ -948,7 +989,7 @@ export default function App() {
                     <Help title="Annual yield">
                       How many kilowatt-hours each kWp produces per year where
                       you live — around 900–1,100 on a good Swiss roof. Leave it
-                      empty and SolarFit will not guess an energy figure.
+                      empty to use official per-face irradiation in map mode. Uploaded images need a supplied yield for energy estimates.
                     </Help>
                     <input
                       type="number"

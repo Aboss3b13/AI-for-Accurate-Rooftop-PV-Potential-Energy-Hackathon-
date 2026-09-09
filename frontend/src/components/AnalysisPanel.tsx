@@ -102,6 +102,8 @@ export default function AnalysisPanel({
               : "Tighter clearances. Requires careful installation review."}
         </p>
         <dl className="metrics">
+          {stats?.projected_area_m2 != null && <div><dt>Projected area</dt><dd>{stats.projected_area_m2} m²</dd></div>}
+          {!!stats?.fallback_faces && <div><dt>Projected fallback</dt><dd>{stats.fallback_faces} face(s)</dd></div>}
           <div>
             <dt>
               Existing PV regions
@@ -113,9 +115,9 @@ export default function AnalysisPanel({
           </div>
           <div>
             <dt>
-              Roof area
+              {stats?.surface_area_m2 != null ? "Roof surface area" : "Roof area"}
               <Help title="Roof area">
-                The size of the roof outline as seen from above, in square metres. A pitched roof is slightly larger in reality than this flat, top-down view.
+                Map results add the true surface area of each reliable fitted face, with projected fallback where marked. Uploaded images use the calibrated top-down area.
               </Help>
             </dt>
             <dd>{stats ? `${stats.roof_area_m2} m²` : "—"}</dd>

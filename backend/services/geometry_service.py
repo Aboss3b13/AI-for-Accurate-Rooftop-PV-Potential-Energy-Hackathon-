@@ -25,6 +25,9 @@ def build_usable(roof, detections, ppm, settings):
             if item["kind"] == "existing_pv"
             else settings.obstacle_margin
         )
+        # A union of PV and structural evidence must retain the larger clearance.
+        for kind in item.get("kinds", []):
+            margin = max(margin, settings.pv_margin if kind == "existing_pv" else settings.obstacle_margin)
         exclusions.append(geometry.buffer(margin * factor * ppm, join_style=2))
     usable = inner.difference(unary_union(exclusions)) if exclusions else inner
     return usable, roof.difference(usable)

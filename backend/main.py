@@ -15,24 +15,25 @@ from backend.services.yolo_service import yolo
 from backend.services.energy_service import capacity
 from backend.services.confidence_service import summarise_confidence
 from backend.map_routes import router as map_router
+from backend.services.surface_analysis import analyse_surfaces
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
-app = FastAPI(title="SolarFit", version="1.0.0")
+app = FastAPI(title="SolarFit", version="1.1.0")
 app.include_router(map_router)
 Image.MAX_IMAGE_PIXELS = 25_000_000
 
 
 @app.get("/api/health")
 def health():
-    return {"app": "SolarFit", "status": "ok", "model": yolo.status()}
+    return {"app": "SolarFit", "version": "1.1.0", "geometry": "individual_roof_surfaces", "status": "ok", "model": yolo.status()}
 
 
 def analyse(image, settings):
     start = time.perf_counter()
     roof = polygon_from_points(settings.roof, strict=True)
     w, h = image.size
-    for points in [settings.roof] + [o.polygon for o in settings.objects]:
+    for points in [settings.roof] + [o.polygon for o in settings.objects] + list(settings.face_overrides.values()) + ([settings.building_override] if settings.building_override else []):
         polygon_from_points(points, strict=True)
         if any(x < 0 or y < 0 or x > w or y > h for x, y in points):
             raise ValueError("Polygon coordinates must be inside the uploaded image.")
@@ -51,12 +52,14 @@ def analyse(image, settings):
     objects = [
         dict(x)
         for x in detected
-        if polygon_from_points(x["polygon"]).intersection(roof).area > 1
+        if settings.capture_id or polygon_from_points(x["polygon"]).intersection(roof).area > 1
     ]
     objects += [
-        dict(polygon=o.polygon, kind=o.kind, confidence=None, source=o.source)
+        dict(polygon=o.polygon, kind=o.kind, confidence=None, source=o.source, height_m=o.height_m)
         for o in settings.objects
     ]
+    if settings.capture_id:
+        return analyse_surfaces(image, settings, objects, warnings, model, start)
     usable, excluded = build_usable(roof, objects, ppm, settings)
     panels, orientation = optimise_panels(usable, ppm, settings.panel, settings.angle)
     confidence = summarise_confidence(objects)

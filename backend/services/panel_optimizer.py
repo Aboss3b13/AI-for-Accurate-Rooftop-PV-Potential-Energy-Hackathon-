@@ -9,7 +9,9 @@ MAX_CANDIDATES = 120_000
 OFFSET_STEPS = 4
 
 
-def optimise_panels(usable, ppm, panel, angle=0):
+def optimise_panels(usable, ppm, panel, angle=0, diagnostics=None):
+    if diagnostics is not None:
+        diagnostics.update(candidate_layouts_tested=0, candidate_panels_tested=0)
     if usable.is_empty:
         return [], "portrait"
     origin = usable.centroid.coords[0]
@@ -29,6 +31,8 @@ def optimise_panels(usable, ppm, panel, angle=0):
             )
         for ox in np.arange(OFFSET_STEPS) / OFFSET_STEPS:
             for oy in np.arange(OFFSET_STEPS) / OFFSET_STEPS:
+                if diagnostics is not None:
+                    diagnostics["candidate_layouts_tested"] += 1
                 xs = np.arange(minx + ox * dx, maxx - width + 1e-7, dx)
                 ys = np.arange(miny + oy * dy, maxy - height + 1e-7, dy)
                 if not len(xs) or not len(ys):
@@ -38,6 +42,8 @@ def optimise_panels(usable, ppm, panel, angle=0):
                     xx.ravel(), yy.ravel(), xx.ravel() + width, yy.ravel() + height
                 )
                 valid = candidates[shapely.covers(aligned, candidates)]
+                if diagnostics is not None:
+                    diagnostics["candidate_panels_tested"] += len(candidates)
                 if len(valid) > len(best):
                     best, orientation = list(valid), name
     return [

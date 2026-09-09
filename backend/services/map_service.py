@@ -4,6 +4,9 @@ import base64
 import html
 import io
 import math
+import hashlib
+import uuid
+import json
 import re
 from datetime import datetime, timezone
 
@@ -16,7 +19,9 @@ from shapely.ops import transform, unary_union
 from backend.schemas.map import MapSelection
 import numpy as np
 
-from backend.services.elevation_service import ElevationUnavailable, roof_obstacles
+from backend.services.elevation_service import ElevationUnavailable, roof_model
+from backend.services.roof_plane import RoofPlane
+from backend.services.runtime_cache import captures, prepared, geodata, imagery
 from backend.services.rooflight_service import detect as detect_rooflights
 
 API = "https://api3.geo.admin.ch/rest/services/ech"
@@ -41,12 +46,17 @@ class MapServiceError(Exception):
 
 
 async def get_json(client: httpx.AsyncClient, path: str, params: dict) -> dict:
+    key = (path, json.dumps(params, sort_keys=True))
+    cached = geodata.get(key)
+    if cached is not None:
+        return json.loads(json.dumps(cached))
     response = await client.get(API + path, params=params)
     response.raise_for_status()
     data = response.json()
     if "error" in data:
         raise MapServiceError("The Swiss map service could not complete this lookup.")
-    return data
+    geodata.put(key, data)
+    return json.loads(json.dumps(data))
 
 
 async def search_locations(query: str) -> list[dict]:
@@ -256,6 +266,14 @@ def alignment(geometry: Polygon) -> float:
 
 
 async def prepare_capture(selection: MapSelection) -> dict:
+    key = selection.model_dump_json()
+    cached = prepared.get(key)
+    if cached is not None and captures.get(cached["capture_id"]) is not None:
+        return cached
+    return prepared.put(key, await _prepare_capture(selection))
+
+
+async def _prepare_capture(selection: MapSelection) -> dict:
     x, y = TO_SWISS.transform(selection.longitude, selection.latitude)
     click = Point(x, y)
     warnings = []
@@ -327,47 +345,76 @@ async def prepare_capture(selection: MapSelection) -> dict:
                 selected = whole
             if selected is not None and selected.get("merged_planes", 1) > 1:
                 warnings.append(
-                    f"Merged {selected['merged_planes']} Sonnendach roof planes into one outline. "
-                    "Click a single plane on the map to analyse just that facet."
+                    f"Loaded {selected['merged_planes']} individual Sonnendach roof faces. "
+                    "Each face is optimised independently."
                 )
         if selected is None:
             warnings.append(
                 "No automatic roof boundary selected. Scale is calibrated; draw the roof in the editor."
             )
         geometry = selected["geometry"] if selected else None
-        grid = capture_grid(geometry, click, selection.span_m)
-        response = await client.get(
-            "https://wms.geo.admin.ch/",
-            params={
-                "SERVICE": "WMS",
-                "REQUEST": "GetMap",
-                "VERSION": "1.3.0",
-                "LAYERS": IMAGERY_LAYER,
-                "STYLES": "",
-                "CRS": "EPSG:2056",
-                "BBOX": ",".join(map(str, grid["bbox"])),
-                "WIDTH": grid["width"],
-                "HEIGHT": grid["height"],
-                "FORMAT": "image/jpeg",
-            },
-        )
-        response.raise_for_status()
-        if not response.headers.get("content-type", "").startswith("image/"):
-            raise MapServiceError(
-                "The aerial-image service did not return an image. Try again shortly."
+        members = []
+        if selected is not None:
+            building = selected["properties"].get("building_id")
+            members = ([p for p in planes if p["properties"].get("building_id") == building]
+                       if planes and building is not None and
+                       (not selection.roof_id or selection.roof_id.startswith("building:")) else [selected])
+        members.sort(key=lambda p: p["id"])
+        all_geometry = unary_union([p["geometry"] for p in members]) if members else geometry
+        if len(members) > 1:
+            selected = {**selected, "merged_planes": len(members)}
+            whole = {**whole, "geometry": all_geometry}
+        grid = capture_grid(all_geometry, click, selection.span_m)
+        model_planes = [RoofPlane.from_slopes(*p["geometry"].centroid.coords[0],
+                        diagnostics={"fallback_reason": "Height model unavailable", "point_count": 0}) for p in members]
+        image_key = json.dumps(grid, sort_keys=True)
+        image_content = imagery.get(image_key)
+        if image_content is None:
+            response = await client.get(
+                "https://wms.geo.admin.ch/",
+                params={
+                    "SERVICE": "WMS",
+                    "REQUEST": "GetMap",
+                    "VERSION": "1.3.0",
+                    "LAYERS": IMAGERY_LAYER,
+                    "STYLES": "",
+                    "CRS": "EPSG:2056",
+                    "BBOX": ",".join(map(str, grid["bbox"])),
+                    "WIDTH": grid["width"],
+                    "HEIGHT": grid["height"],
+                    "FORMAT": "image/jpeg",
+                },
             )
+            response.raise_for_status()
+            if not response.headers.get("content-type", "").startswith("image/"):
+                raise MapServiceError(
+                    "The aerial-image service did not return an image. Try again shortly."
+                )
+            image_content = imagery.put(image_key, response.content)
         detected = []
         if geometry is not None:
             # The height model sees chimneys and dormers the PV-only model cannot.
-            facets = selected.get("facets") or [geometry]
+            facets = [p["geometry"] for p in members]
             try:
-                detected = await roof_obstacles(client, facets, geometry.bounds)
+                model = await roof_model(client, facets, all_geometry.bounds)
+                detected, model_planes = model["obstacles"], model["planes"]
+                checked = []
+                for member, plane in zip(members, model_planes):
+                    official_pitch = member["properties"].get("neigung")
+                    measured = plane.describe()
+                    if (plane.source == "swisssurface3d" and official_pitch is not None
+                            and abs(float(official_pitch) - measured["pitch_deg"]) > 15):
+                        plane = RoofPlane.from_slopes(*member["geometry"].centroid.coords[0],
+                            diagnostics={**plane.diagnostics, "rejected_fit": measured,
+                                "fallback_reason": "DSM pitch differs from the official face by more than 15 degrees."})
+                    checked.append(plane)
+                model_planes = checked
             except ElevationUnavailable as exc:
                 warnings.append(
                     f"Roof superstructures could not be measured ({exc}). "
                     "Mark chimneys and roof windows by hand."
                 )
-        image = Image.open(io.BytesIO(response.content)).convert("RGB")
+        image = Image.open(io.BytesIO(image_content)).convert("RGB")
         if image.size != (grid["width"], grid["height"]):
             raise MapServiceError(
                 "The map image size did not match its scale. Please retry."
@@ -397,7 +444,8 @@ async def prepare_capture(selection: MapSelection) -> dict:
             )
     if geometry is not None and roof_pixels:
         # Flush roof windows never reach the height model; the photo shows them.
-        outline = Polygon(roof_pixels)
+        outline = transform(lambda x, y: ((np.asarray(x)-grid["bbox"][0])*grid["pixels_per_metre"],
+                                           (grid["bbox"][3]-np.asarray(y))*grid["pixels_per_metre"]), all_geometry)
         if outline.is_valid:
             already = [Polygon(o["polygon"]) for o in objects]
             already = [p for p in already if p.is_valid]
@@ -419,9 +467,10 @@ async def prepare_capture(selection: MapSelection) -> dict:
                     }
                 )
     for obstacle in detected if geometry is not None else []:
-        clipped = obstacle["geometry"].intersection(geometry)
+        clipped = obstacle["geometry"].intersection(all_geometry)
         if clipped.geom_type != "Polygon" or clipped.area < MIN_HOLE_AREA_M2:
             continue
+        clipped = bounded_simplify(clipped) or clipped.convex_hull
         polygon = pixel_ring(clipped.exterior.coords, grid)
         if len(polygon) < 3 or not Polygon(polygon).is_valid:
             continue
@@ -449,7 +498,17 @@ async def prepare_capture(selection: MapSelection) -> dict:
             "No roof structures found. That is not proof the roof is clear - "
             "mark any chimneys or roof windows yourself."
         )
+    capture_id = uuid.uuid4().hex
+    faces = [{**p, "plane": plane} for p, plane in zip(members, model_planes)]
+    # Hash the decoded JPEG, exactly as the analyse endpoint receives it.
+    decoded = Image.open(io.BytesIO(encoded.getvalue())).convert("RGB")
+    captures.put(capture_id, {"faces": faces, "grid": grid,
+                 "image_hash": hashlib.sha256(decoded.tobytes()).hexdigest(),
+                 "warnings": list(warnings), "default_angle": alignment(geometry) if geometry is not None else 0})
     return {
+        "capture_id": capture_id,
+        "roof_faces": [{**public_plane(p), "roof": pixel_ring(p["geometry"].exterior.coords, grid),
+                        "plane": plane.describe()} for p, plane in zip(members, model_planes)],
         "image_base64": base64.b64encode(encoded.getvalue()).decode(),
         "mime_type": "image/jpeg",
         "roof": roof_pixels,
@@ -458,7 +517,7 @@ async def prepare_capture(selection: MapSelection) -> dict:
         "angle": alignment(geometry) if geometry is not None else 0,
         "candidates": [
             public_plane(p)
-            for p in planes
+            for p in members
             if p["geometry"].area >= MIN_CANDIDATE_AREA_M2
         ][:MAX_CANDIDATES],
         "building_outline": public_plane(whole) if whole else None,
@@ -483,12 +542,12 @@ async def prepare_capture(selection: MapSelection) -> dict:
             "feature_id": selected["id"] if selected else None,
             "building_id": props.get("building_id"),
             "merged_planes": selected.get("merged_planes", 1) if selected else 0,
-            "roof_area_m2": round(geometry.area, 2) if geometry is not None else None,
+            "roof_area_m2": round(all_geometry.area, 2) if all_geometry is not None else None,
             "pitch_deg": props.get("neigung"),
             "azimuth_deg": props.get("ausrichtung"),
             "roof_data_updated": props.get("datum_aenderung"),
             "retrieved_at": datetime.now(timezone.utc).isoformat(),
-            "scale_basis": "Map-projected metres in LV95, independent of display zoom. Packing uses the 2D plan view.",
+            "scale_basis": "LV95 map metres, independent of display zoom. Each reliable DSM face is packed in true surface metres; unavailable faces use a labelled projected fallback.",
             "source_url": "https://map.geo.admin.ch/",
         },
     }

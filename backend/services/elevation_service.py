@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image
 from pyproj import Transformer
 from shapely.geometry import Polygon
+from shapely import contains_xy
 
 STAC = "https://data.geo.admin.ch/api/stac/v0.9/collections"
 COLLECTION = "ch.swisstopo.swisssurface3d-raster"
@@ -110,6 +111,8 @@ def tile_origin(path: Path) -> tuple[float, float]:
 def mosaic(paths: list[Path], bounds) -> tuple[np.ndarray, float, float]:
     """Cut the requested window out of one or more tiles, in LV95 metres."""
     minx, miny, maxx, maxy = bounds
+    minx, miny = math.floor(minx / DSM_STEP_M) * DSM_STEP_M, math.floor(miny / DSM_STEP_M) * DSM_STEP_M
+    maxx, maxy = math.ceil(maxx / DSM_STEP_M) * DSM_STEP_M, math.ceil(maxy / DSM_STEP_M) * DSM_STEP_M
     width = int(round((maxx - minx) / DSM_STEP_M))
     height = int(round((maxy - miny) / DSM_STEP_M))
     if width < 4 or height < 4:
@@ -162,7 +165,7 @@ def facet_mask(polygon, shape, minx: float, maxy: float) -> np.ndarray:
     return mask.astype(bool)
 
 
-def plane_residual(heights: np.ndarray, mask: np.ndarray) -> np.ndarray | None:
+def fit_plane(heights: np.ndarray, mask: np.ndarray) -> dict | None:
     """Fit the roof face to its own slope, then measure what stands above it.
 
     Superstructures only ever push the surface up, so the fit is anchored to the
@@ -191,7 +194,16 @@ def plane_residual(heights: np.ndarray, mask: np.ndarray) -> np.ndarray | None:
         keep = residual <= max(cut, 0.05)
     out = np.full(heights.shape, np.nan, dtype=np.float32)
     out[valid] = residual.astype(np.float32)
-    return out
+    deck = residual[keep]
+    return {"residual": out, "coefficients": solution.tolist(),
+            "point_count": int(z.size), "inlier_count": int(keep.sum()),
+            "rmse_m": float(np.sqrt(np.mean(deck ** 2))),
+            "rank": int(np.linalg.matrix_rank(design[keep]))}
+
+
+def plane_residual(heights: np.ndarray, mask: np.ndarray) -> np.ndarray | None:
+    fitted = fit_plane(heights, mask)
+    return fitted["residual"] if fitted else None
 
 
 def rise_threshold(residual: np.ndarray, mask: np.ndarray) -> float:
@@ -228,17 +240,17 @@ def thickness(polygon: Polygon) -> float:
 
 
 def detect(
-    heights: np.ndarray, minx: float, maxy: float, facets: list[Polygon]
+    heights: np.ndarray, minx: float, maxy: float, facets: list[Polygon], fits=None
 ) -> list[dict]:
     """Return superstructure polygons in LV95 metres, with height and class."""
     raised = np.zeros(heights.shape, dtype=np.uint8)
     depth = np.zeros(heights.shape, dtype=np.float32)
     kernel = np.ones((3, 3), np.uint8)
-    for facet in facets:
+    for index, facet in enumerate(facets):
         mask = facet_mask(facet, heights.shape, minx, maxy)
         if not mask.any():
             continue
-        residual = plane_residual(heights, mask)
+        residual = (fits[index]["residual"] if fits[index] else None) if fits is not None else plane_residual(heights, mask)
         if residual is None:
             continue
         # A cell on a ridge straddles two faces, so it stands proud of both and
@@ -304,8 +316,19 @@ async def roof_obstacles(
     client: httpx.AsyncClient, facets: list[Polygon], bounds
 ) -> list[dict]:
     """Fetch the height model over this roof and return its superstructures."""
+    return (await roof_model(client, facets, bounds))["obstacles"]
+
+
+async def roof_model(client: httpx.AsyncClient, facets: list[Polygon], bounds) -> dict:
+    """One DSM load/fit shared by obstacle detection and surface packing."""
+    from backend.services.roof_plane import plane_from_fit
+    from backend.services.runtime_cache import elevation
+    key = tuple(f.wkb_hex for f in facets)
+    cached = elevation.get(key)
+    if cached is not None:
+        return cached
     if not facets:
-        return []
+        return {"obstacles": [], "planes": []}
     minx, miny, maxx, maxy = bounds
     window = (minx - PAD_M, miny - PAD_M, maxx + PAD_M, maxy + PAD_M)
     try:
@@ -314,6 +337,24 @@ async def roof_obstacles(
             raise ElevationUnavailable("No height model published for this location")
         paths = [await cached_tile(client, href) for href in hrefs[:MAX_TILES]]
         heights, ox, oy = await asyncio.to_thread(mosaic, paths, window)
-        return await asyncio.to_thread(detect, heights, ox, oy, facets)
+        def process():
+            rows, cols = np.indices(heights.shape)
+            xs, ys = ox + (cols + .5)*DSM_STEP_M, oy - (rows + .5)*DSM_STEP_M
+            fits = []
+            for facet in facets:
+                # Rasterised boundary cells may sample the ground or an adjacent
+                # pitch. Fit actual cell centres half a metre inside the face.
+                core = facet.buffer(-DSM_STEP_M)
+                mask = contains_xy(core, xs, ys)
+                if int(mask.sum()) < 24:
+                    mask = contains_xy(facet, xs, ys)
+                fitted = fit_plane(heights, mask)
+                fits.append(fitted)
+            planes = [plane_from_fit(f, fit, ox, oy) for f, fit in zip(facets, fits)]
+            for plane in planes:
+                plane.diagnostics["height_tiles"] = hrefs[:MAX_TILES]
+                plane.diagnostics["sample_step_m"] = DSM_STEP_M
+            return {"obstacles": detect(heights, ox, oy, facets, fits), "planes": planes}
+        return elevation.put(key, await asyncio.to_thread(process))
     except (httpx.HTTPError, ValueError, OSError) as exc:
         raise ElevationUnavailable("The height model could not be reached") from exc

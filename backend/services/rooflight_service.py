@@ -38,6 +38,12 @@ GROW_M = 0.2
 
 def _mask_from(polygon, shape) -> np.ndarray:
     mask = np.zeros(shape, np.uint8)
+    if polygon.geom_type == "MultiPolygon":
+        for part in polygon.geoms:
+            mask |= _mask_from(part, shape)
+        return mask
+    if polygon.is_empty or polygon.geom_type != "Polygon":
+        return mask
     rings = [np.array(polygon.exterior.coords, np.int32)]
     cv2.fillPoly(mask, rings, 1)
     for interior in polygon.interiors:

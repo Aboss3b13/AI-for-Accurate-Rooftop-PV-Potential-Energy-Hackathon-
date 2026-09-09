@@ -13,6 +13,8 @@ import {
   Undo2,
 } from "lucide-react";
 import Help from "./Help";
+import type { Analysis } from "../types";
+import { layerNames, type Layers } from "./RoofCanvas";
 import type { MapCapture, MapPick } from "../mapTypes";
 
 type Location = {
@@ -27,6 +29,12 @@ type Props = {
   error: string;
   capture: MapCapture | null;
   visible: boolean;
+  result: Analysis | null;
+  layers: Layers;
+  setLayers: (layers: Layers) => void;
+  inspectedFace: string;
+  onInspect: (id: string) => void;
+  phase: string;
 };
 const INITIAL: L.LatLngTuple = [47.473, 8.307];
 export default function SatelliteMap({
@@ -34,8 +42,11 @@ export default function SatelliteMap({
   busy,
   error,
   capture,
-  visible,
+  visible, result, layers, setLayers, inspectedFace, onInspect, phase,
 }: Props) {
+  const [solarLayer, setSolarLayer] = useState(false);
+  const overlays = useRef<L.GeoJSON | null>(null);
+  const inspect = useRef(onInspect); inspect.current = onInspect;
   const container = useRef<HTMLDivElement>(null),
     map = useRef<L.Map | null>(null),
     selection = useRef<L.GeoJSON | null>(null);
@@ -154,7 +165,7 @@ export default function SatelliteMap({
     const m = map.current;
     if (!m) return;
     selection.current?.remove();
-    if (drawing) return;
+    if (drawing || !layers.roof) return;
     if (!capture?.candidates.length && !capture?.building_outline) return;
     const outline = capture.building_outline;
     // The merged building sits underneath; facets stay clickable on top of it.
@@ -166,11 +177,11 @@ export default function SatelliteMap({
       properties: { id: plane.id, whole },
       geometry: plane.geometry,
     }));
-    const wholeSelected = outline?.id === capture.selected_roof_id;
+    const wholeSelected = !inspectedFace;
     selection.current = L.geoJSON(features as any, {
       style: (feature) => {
         const isWhole = feature?.properties.whole;
-        const isSelected = feature?.properties.id === capture.selected_roof_id;
+        const isSelected = feature?.properties.id === inspectedFace || (isWhole && !inspectedFace);
         if (isWhole)
           return {
             color: isSelected ? "#d5ff8f" : "#9fe870",
@@ -188,17 +199,33 @@ export default function SatelliteMap({
         layer.on("click", (event: L.LeafletMouseEvent) => {
           L.DomEvent.stopPropagation(event);
           if (isBusy.current) return;
-          // Clicking the active facet again widens back out to the whole roof.
-          const back =
-            feature.properties.id === capture.selected_roof_id && outline;
-          void callback.current({
-            latitude: capture.provenance.latitude,
-            longitude: capture.provenance.longitude,
-            roof_id: back ? outline.id : feature.properties.id,
-          });
+          inspect.current(feature.properties.whole || feature.properties.id === inspectedFace ? "" : feature.properties.id);
         }),
     }).addTo(m);
-  }, [capture, drawing]);
+  }, [capture, drawing, inspectedFace, layers.roof]);
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    overlays.current?.remove();
+    if (!result?.map_overlay || drawing) return;
+    const keys: Record<string, keyof Layers> = { roof: "roof", pv: "existing", obstacles: "obstacles", excluded: "safety", usable: "usable", panels: "panels" };
+    const colors: Record<string, string> = { roof: "#75cfff", pv: "#54a6ff", obstacles: "#ff947b", excluded: "#ffc15e", usable: "#8de4b0", panels: "#d5ff8f" };
+    const order: Record<string, number> = { roof: 0, usable: 1, excluded: 2, pv: 3, obstacles: 4, panels: 5 };
+    const features = result.map_overlay.features.filter(f => layers[keys[f.properties.layer]] && (f.properties.layer !== "roof" || solarLayer))
+      .sort((a, b) => order[a.properties.layer] - order[b.properties.layer]);
+    overlays.current = L.geoJSON(features as any, {
+      interactive: false,
+      style: feature => {
+        const p = feature?.properties || {};
+        const dim = inspectedFace && p.face_id !== inspectedFace;
+        const irradiation = p.irradiation_kwh_m2_year;
+        const color = p.layer === "roof" && irradiation != null ? (irradiation >= 1200 ? "#ffc15e" : irradiation >= 1000 ? "#b9df80" : "#75a5d6") : colors[p.layer];
+        return { color: p.layer === "panels" ? "#203b27" : color, fillColor: color,
+          weight: p.layer === "panels" ? 1 : .8, opacity: dim ? .4 : 1,
+          fillOpacity: (p.layer === "panels" ? .92 : p.layer === "usable" ? .10 : .32) * (dim ? .35 : 1) };
+      },
+    }).addTo(m);
+  }, [result, layers, inspectedFace, drawing, solarLayer]);
   async function search(event: React.FormEvent) {
     event.preventDefault();
     if (query.trim().length < 2) return;
@@ -315,19 +342,26 @@ export default function SatelliteMap({
             : zoom < 18
             ? "Zoom in to see individual roofs"
             : capture?.provenance.merged_planes && capture.provenance.merged_planes > 1
-              ? `Whole roof: ${capture.provenance.merged_planes} planes, ${capture.provenance.roof_area_m2} m². Click a facet to narrow.`
+              ? `${capture.provenance.merged_planes} roof faces. Click a face to inspect its surface.`
               : "Click a roof. SolarFit handles the rest."}
         </div>
         {busy && (
           <div className="map-working" role="status">
             <LoaderCircle className="spin" />
-            <strong>Finding your roof & calibrating imagery</strong>
+            <strong>{phase}</strong>
             <span>
-              Official roof outline → metric aerial capture → PV analysis
+              Official faces → roof planes → PV & obstacles → surface layout
             </span>
           </div>
         )}
       </div>
+      <div className="layer-bar">
+        {Object.entries(layerNames).map(([key, label]) => <label key={key} className={"layer " + key}>
+          <input type="checkbox" checked={layers[key as keyof Layers]} onChange={e => setLayers({ ...layers, [key]: e.target.checked })} /><span />{key === "roof" ? "Roof faces" : label}
+        </label>)}
+        <label className="layer"><input type="checkbox" checked={solarLayer} disabled={!result?.faces?.some(f => f.solar.irradiation_kwh_m2_year != null)} onChange={e => setSolarLayer(e.target.checked)} />Solar irradiation</label>
+      </div>
+      {solarLayer && <p className="map-disclosure">Annual irradiation: blue &lt; 1,000 · green 1,000–1,199 · gold ≥ 1,200 kWh/m². Enable Roof faces to show it.</p>}
       {(error || mapError) && (
         <p className="map-message" role="alert">
           {error || mapError}

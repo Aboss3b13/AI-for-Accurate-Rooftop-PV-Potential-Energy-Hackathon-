@@ -8,6 +8,8 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 import sys
+import shutil
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 os.chdir(ROOT)
@@ -27,6 +29,18 @@ def open_when_ready(url):
 
 if __name__ == "__main__":
     import uvicorn
+
+    frontend = ROOT / "frontend"
+    built = frontend / "dist" / "index.html"
+    inputs = list((frontend / "src").rglob("*")) + [frontend / "package-lock.json", frontend / "index.html"]
+    if not built.exists() or any(p.is_file() and p.stat().st_mtime > built.stat().st_mtime for p in inputs):
+        print("Building the updated SolarFit interface...")
+        npm = shutil.which("npm.cmd") or shutil.which("npm")
+        if not npm:
+            print("Node.js is required to build this update. Run REBUILD_SOLARFIT.bat after installing Node.js.")
+            sys.exit(1)
+        if subprocess.run([npm, "run", "build"], cwd=frontend).returncode:
+            sys.exit(1)
 
     port = 8000
     try:

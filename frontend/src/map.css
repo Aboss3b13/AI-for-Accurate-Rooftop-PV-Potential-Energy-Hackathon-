@@ -523,3 +523,14 @@
   font-weight: 500;
   letter-spacing: 0.01em;
 }
+.surface-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 16px; margin: 18px 0; }
+.surface-facts span { display: flex; flex-direction: column; gap: 5px; font-size: 14px; color: #55664b; }
+.surface-facts b { font-size: 16px; color: #244f3d; }
+.surface-objective { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
+.surface-objective button { padding: 9px 12px; border-radius: 8px; }
+.surface-objective button.selected { color: #15251b; background: #d5ff8f; }
+.surface-objective label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.surface-objective input { width: 120px; padding: 8px; }
+.surface-inspector pre { max-height: 360px; overflow: auto; font-size: 11px; }
+.surface-inspector .map-context-title strong, .surface-inspector .roof-plane-select { font-size: 14px; color: #244f3d; }
+.surface-inspector p { font-size: 14px; color: #55664b; }

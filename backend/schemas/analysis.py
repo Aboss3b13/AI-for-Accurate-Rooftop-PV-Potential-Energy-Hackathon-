@@ -23,13 +23,22 @@ class MarkedObject(BaseModel):
 
 
 class AnalysisSettings(BaseModel):
+    capture_id: str | None = Field(None, pattern=r"^[a-f0-9]{32}$")
+    # Edited whole-building outlines crop the original faces. A face override
+    # changes only that face, retaining its measured plane and all other faces.
+    boundary_edited: bool = False
+    edited_face_id: str | None = Field(None, max_length=80)
+    face_overrides: dict[str, list[Point]] = Field(default_factory=dict, max_length=100)
+    building_override: list[Point] | None = Field(None, min_length=3, max_length=200)
+    objective: Literal["capacity", "energy"] = "capacity"
+    max_panels: int | None = Field(None, ge=1, le=10000)
     roof: list[Point] = Field(min_length=3, max_length=200)
     pixels_per_metre: float | None = Field(None, ge=0.5, le=2000)
     approximate_roof_width: float = Field(12, ge=1, le=200)
     scale_verified: bool = False
     mode: Literal["conservative", "recommended", "maximum"] = "recommended"
     panel: PanelConfig = Field(default_factory=PanelConfig)
-    objects: list[MarkedObject] = Field(default_factory=list, max_length=100)
+    objects: list[MarkedObject] = Field(default_factory=list, max_length=500)
     angle: float = Field(0, ge=-180, le=180)
     annual_specific_yield: float | None = Field(None, ge=0, le=3000)
     edge_margin: float = Field(0.3, ge=0, le=3)
@@ -39,7 +48,9 @@ class AnalysisSettings(BaseModel):
 
     @model_validator(mode="after")
     def finite_coordinates(self):
-        for polygon in [self.roof] + [o.polygon for o in self.objects]:
+        for polygon in [self.roof] + [o.polygon for o in self.objects] + list(self.face_overrides.values()) + ([self.building_override] if self.building_override else []):
+            if not 3 <= len(polygon) <= 200:
+                raise ValueError("Polygons need 3 to 200 vertices")
             if any(not math.isfinite(v) for point in polygon for v in point):
                 raise ValueError("Coordinates must be finite")
         return self

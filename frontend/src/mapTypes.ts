@@ -32,6 +32,8 @@ export type MapProvenance = {
   source_url: string;
 };
 export type MapCapture = {
+  capture_id: string;
+  roof_faces: (MapPlane & { roof: Point[]; plane: Record<string, unknown> })[];
   image_base64: string;
   mime_type: string;
   roof: Point[];
