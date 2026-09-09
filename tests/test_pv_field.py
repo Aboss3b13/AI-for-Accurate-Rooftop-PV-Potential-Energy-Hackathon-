@@ -89,8 +89,46 @@ def test_an_empty_roof_is_survivable():
 def test_the_split_reports_its_own_separation():
     rng = np.random.default_rng(0)
     values = np.concatenate([rng.normal(-5, 2, 500), rng.normal(30, 2, 500)])
-    threshold, bright, separation, share = pv.split_threshold(values)
+    threshold, bright, separation, share, dark = pv.split_threshold(values)
     assert -5 < threshold < 30, threshold
     assert bright == pytest.approx(30, abs=1)
     assert separation == pytest.approx(35, abs=2)
     assert share == pytest.approx(0.5, abs=0.05)
+    assert dark == pytest.approx(-5, abs=1)
+
+
+def test_a_roof_that_is_all_array_is_still_found():
+    """Otsu splits the array into brighter and darker modules, not array from
+    roof, and the separation guard would then report an empty roof."""
+    image = roof_image()
+    image = put_array(image, 20, 20, SIZE - 20, SIZE - 20)
+    found = pv.detect(image, ROOF, PPM)
+    assert found, "an entirely covered roof must not read as bare"
+    covered = sum(f["area_m2"] for f in found)
+    assert covered > 0.6 * ROOF.area / PPM**2
+
+
+def test_holes_inside_an_array_are_closed_but_large_gaps_survive():
+    image = put_array(roof_image(), 40, 40, 200, 200)
+    # A vent inside the field, and a genuine bare courtyard.
+    image[110:118, 110:118] = (150, 140, 132)
+    found = pv.detect(image, ROOF, PPM)
+    assert len(found) >= 1
+    biggest = max(found, key=lambda f: f["area_m2"])
+    # The small vent is absorbed rather than splitting the array in four.
+    assert biggest["area_m2"] > 150
+
+
+def test_filling_leaves_holes_that_are_too_big():
+    mask = np.ones((100, 100), np.uint8)
+    mask[30:70, 30:70] = 0          # 1600 px hole
+    filled = pv.fill_small_holes(mask, 400)
+    assert filled[50, 50] == 0
+    assert pv.fill_small_holes(mask, 4000)[50, 50] == 1
+
+
+def test_filling_ignores_the_area_outside_the_shape():
+    mask = np.zeros((100, 100), np.uint8)
+    mask[40:60, 40:60] = 1
+    # The surrounding background touches the frame and must not be filled in.
+    assert pv.fill_small_holes(mask, 100000)[0, 0] == 0

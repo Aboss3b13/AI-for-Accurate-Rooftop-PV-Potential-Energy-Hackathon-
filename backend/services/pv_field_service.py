@@ -27,6 +27,11 @@ from shapely.geometry import Polygon
 MIN_ABSOLUTE_BLUE = 18.0
 # ...and the two classes must actually be distinct populations.
 MIN_SEPARATION = 14.0
+# When even the darker class is this blue, both sides of the split are array.
+# Measured on a roof region that is all modules: the darker modules sit at +17
+# against a plain roof's zero, and the two classes are only 11 apart - which the
+# separation guard would otherwise read as "no array here" and return nothing.
+COVERED_DARK_BLUE = 12.0
 # A roof that is nearly all "bright" has no contrast to learn from; it is more
 # likely blue-grey sheeting than a fully covered array. A real full-coverage
 # roof is refused here, which is the safer of the two mistakes.
@@ -41,6 +46,10 @@ MIN_TEXTURE_RATIO = 1.0
 # An array is a compact block of modules. The same Oerlikon roof produced a
 # ragged edge band at 0.45; the real arrays measured 0.61 and above.
 MIN_SOLIDITY = 0.55
+# Gaps between module rows, and the odd vent standing inside an array, should
+# not break one field into fragments.
+CLOSE_M = 1.2
+MAX_HOLE_M2 = 15.0
 
 
 def _mask_from(polygon, shape) -> np.ndarray:
@@ -57,8 +66,13 @@ def _mask_from(polygon, shape) -> np.ndarray:
     return mask
 
 
-def split_threshold(values: np.ndarray) -> tuple[float, float, float, float]:
-    """Otsu split of the roof's blue-minus-red values, in original units."""
+def split_threshold(values: np.ndarray) -> tuple[float, float, float, float, float]:
+    """Otsu split of the roof's blue-minus-red values, in original units.
+
+    Returns the threshold, the mean of each class, their separation and the
+    bright class's share. The dark class matters: if it is array-blue too, the
+    split fell inside one array rather than between array and roof.
+    """
     low, high = (float(v) for v in np.percentile(values, [1, 99]))
     span = max(high - low, 1e-6)
     scaled = np.clip((values - low) / span * 255, 0, 255).astype(np.uint8)
@@ -69,9 +83,26 @@ def split_threshold(values: np.ndarray) -> tuple[float, float, float, float]:
     bright = values[values >= threshold]
     dark = values[values < threshold]
     if bright.size == 0 or dark.size == 0:
-        return threshold, 0.0, 0.0, 0.0
+        return threshold, 0.0, 0.0, 0.0, 0.0
     return (threshold, float(bright.mean()), float(bright.mean() - dark.mean()),
-            float(bright.size) / values.size)
+            float(bright.size) / values.size, float(dark.mean()))
+
+
+def fill_small_holes(mask: np.ndarray, max_pixels: int) -> np.ndarray:
+    """Close interior gaps an array should not be broken by, keeping real ones."""
+    if max_pixels <= 0:
+        return mask
+    holes = (mask == 0).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(holes, 4)
+    filled = mask.copy()
+    border = set(labels[0].tolist()) | set(labels[-1].tolist())
+    border |= set(labels[:, 0].tolist()) | set(labels[:, -1].tolist())
+    for index in range(1, count):
+        # A hole touching the frame is outside the array, not inside it.
+        if index in border or stats[index, 4] > max_pixels:
+            continue
+        filled[labels == index] = 1
+    return filled
 
 
 def detect(
@@ -95,16 +126,30 @@ def detect(
         return []
 
     blue = rgb[..., 2] - rgb[..., 0]
-    threshold, bright_mean, separation, share = split_threshold(blue[core])
-    if (bright_mean < MIN_ABSOLUTE_BLUE or separation < MIN_SEPARATION
+    threshold, bright_mean, separation, share, dark_mean = split_threshold(blue[core])
+    covered = dark_mean >= COVERED_DARK_BLUE
+    if covered:
+        # Both classes are array-blue, so Otsu divided one array into its
+        # brighter and darker modules instead of separating it from the roof.
+        # On a face that is all array the two are 11 apart, the separation guard
+        # rejects it, and every module is missed. Take the whole blue field; the
+        # texture and solidity checks still have to agree it is an array.
+        threshold = float(np.percentile(blue[core], 2))
+    elif (bright_mean < MIN_ABSOLUTE_BLUE or separation < MIN_SEPARATION
             or share > MAX_BRIGHT_SHARE):
+        # The share guard only applies without that positive evidence: it is
+        # there to refuse a roof with no contrast, not a roof that is all array.
         return []
 
     hit = (core & (blue >= threshold)).astype(np.uint8)
     # Open first to drop speckle, then close the gaps between module rows so an
     # array reads as one region rather than a comb of stripes.
     hit = cv2.morphologyEx(hit, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-    hit = cv2.morphologyEx(hit, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    # Close across a module row, so the gaps between rows do not split one array
+    # into a comb of stripes.
+    span = max(3, int(round(CLOSE_M * pixels_per_metre)) | 1)
+    hit = cv2.morphologyEx(hit, cv2.MORPH_CLOSE, np.ones((span, span), np.uint8))
+    hit = fill_small_holes(hit, int(MAX_HOLE_M2 * pixels_per_metre**2))
     if not hit.any():
         return []
 

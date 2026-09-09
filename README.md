@@ -462,6 +462,14 @@ never smoother than its roof — that rejects blue-grey sheeting — and a real
 array is solid, which rejects the bluish parapet band that a flat Oerlikon roof
 otherwise offered up as a 74 m² "array".
 
+A roof that is *all* array is the hard case, and the first version failed it
+completely. Otsu still splits, but into brighter and darker modules rather than
+array against roof: on a region that is nothing but modules the two classes lie
+11 apart, the separation guard reads that as "no array here", and every module
+is missed. When even the darker class is array-blue the whole blue field is
+taken instead, and texture and solidity still have to agree. That region went
+from **0 to 658 of 744 m²**.
+
 It is a colour rule, not a trained detector, and it is used **alongside** the
 model rather than instead of it. On a sawtooth roof the north-light glazing is
 blue too and gets included: excluded from the layout either way, but labelled
