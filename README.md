@@ -231,6 +231,62 @@ The assessment also lists what remains unverified: snow/wind and structural load
 
 ---
 
+## Which roof is *this* roof?
+
+Sonnendach's `building_id` groups **records, not structures**. Two roofs either
+side of a courtyard can carry the same one. SolarFit used to seed its selection
+with every face sharing the clicked face's id and then only ever add to it, so
+an unrelated polygon was in before any geometry was consulted and nothing could
+take it back out.
+
+The identifier is now a source of **candidates only**. Faces form a graph, the
+traversal starts at the face under your click, and a face joins when geometry
+says it is attached — a shared edge of real length, or genuine overlap. A
+passing corner is not attachment, and neither is proximity.
+
+```text
+A -- B -- C -- D          X          (all four share one building_id)
+     ^ clicked                        X is not attached to anything
+
+kept:    A B C D
+dropped: X   "no physical connection to the clicked roof"
+```
+
+Where measured elevation is available it gets a veto: the strip between two
+faces is sampled against swissALTI3D terrain, and a join is withdrawn if there
+is no building standing between them. Faces with a different EGID are never
+absorbed.
+
+On a real Wiedikon building this drops **5 of 19** candidate polygons, all of
+them carrying `building_id` 533408, taking the analysed roof from 225 m² to the
+196 m² actually under the click. Every candidate keeps its reason, and the
+result panel lists them, because "why is this roof part of my building?" has to
+be answerable.
+
+### What decides what
+
+| Question | Decided by |
+|---|---|
+| Which faces are candidates | Sonnendach `building_id` near the click |
+| **Which faces are the physical roof** | **Geometry: shared-edge graph from the clicked face** |
+| Whether a join is real | swissSURFACE3D against swissALTI3D terrain |
+| Roof plane, slope, azimuth, true area | swissSURFACE3D consensus fit, per face |
+| Irradiation and solar suitability | Sonnendach |
+| Existing PV, flush rooflights | Aerial imagery |
+| Everything else | Deterministic geometry |
+
+Calculations stay **per face** in that face's own surface metres. The merged
+outline exists for the map only.
+
+**swissBUILDINGS3D is deliberately not fetched per click.** Its CityGML tile
+over the test area is **251 MB** and dated 2019, against 13 MB and 2024 for the
+surface model, and swisstopo states that dormers and small roof details are not
+modelled in it. It would cost the interactive budget without answering the
+question. swissSURFACE3D measures the roof as it stands, which is what the
+connectivity check needs.
+
+---
+
 ## Why predict what Switzerland already measured?
 
 Most of the answer is not predicted. Switzerland publishes the roof, the

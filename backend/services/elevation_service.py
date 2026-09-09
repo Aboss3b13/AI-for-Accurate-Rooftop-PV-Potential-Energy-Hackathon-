@@ -61,6 +61,10 @@ MAX_DROP_FRACTION = 0.95
 # Surface minus terrain. A roof stands at least this far over the ground it
 # covers, so anything lower inside an official outline is a yard, not a roof.
 MIN_ROOF_HEIGHT_M = 2.0
+# Strip sampled between two faces when asking whether building joins them.
+BRIDGE_PROBE_M = 1.0
+BRIDGE_MIN_CELLS = 6
+BRIDGE_MIN_SHARE = 0.6
 PAD_M = 2.0
 MAX_TILES = 4
 # Each tile is ~13 MB and covers a square kilometre; keep the cache bounded.
@@ -472,7 +476,37 @@ async def roof_model(client: httpx.AsyncClient, facets: list[Polygon], bounds, p
                 lon, lat = TO_WGS84.transform(*facet.centroid.coords[0])
                 sunlight.append(analyse_sunlight(facet, plane, terrain, lat, lon))
             return {"obstacles": detect(heights, ox, oy, facets, fits, above_ground),
-                    "planes": planes, "sunlight": sunlight}
+                    "planes": planes, "sunlight": sunlight,
+                    "bridge": bridge_tester(heights, above_ground, ox, oy)}
         return elevation.put(key, await asyncio.to_thread(process))
     except (httpx.HTTPError, ValueError, OSError) as exc:
         raise ElevationUnavailable("The height model could not be reached") from exc
+
+
+def bridge_tester(heights, above_ground, minx, maxy):
+    """Ask the surface model whether two roof faces are joined by building.
+
+    Two Sonnendach faces can share an edge on paper and be separated by a
+    courtyard or a street in fact. Where terrain is available the strip between
+    them is sampled: if it stands clear of the ground it is building, and the
+    link is real.
+
+    Without terrain there is nothing to compare against, so every link is
+    allowed rather than guessed at.
+    """
+    if above_ground is None:
+        return None
+
+    def supported(a, b) -> bool:
+        strip = a["geometry"].buffer(BRIDGE_PROBE_M).intersection(
+            b["geometry"].buffer(BRIDGE_PROBE_M))
+        if strip.is_empty:
+            return True
+        mask = facet_mask(strip, heights.shape, minx, maxy)
+        cells = above_ground[mask.astype(bool)]
+        cells = cells[np.isfinite(cells)]
+        if cells.size < BRIDGE_MIN_CELLS:
+            return True
+        return bool(np.mean(cells >= MIN_ROOF_HEIGHT_M) >= BRIDGE_MIN_SHARE)
+
+    return supported

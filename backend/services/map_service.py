@@ -22,6 +22,7 @@ import numpy as np
 from backend.services.elevation_service import ElevationUnavailable, roof_model
 from backend.services.roof_plane import RoofPlane, official_plane
 from backend.services.runtime_cache import captures, prepared, geodata, imagery
+from backend.services.roof_graph import TOUCH_TOLERANCE_M, rejected_summary, select_connected
 from backend.services.rooflight_service import detect as detect_rooflights
 from backend.services.pv_field_service import detect as detect_pv_fields
 from backend.services.pv_register_service import RegisterUnavailable, registered_pv
@@ -125,42 +126,14 @@ def drawn_plane(selection: MapSelection) -> dict:
     }
 
 
-def connected_roof_members(planes: list[dict]) -> list[dict]:
-    """Resolve touching roof sections, not just one Sonnendach object ID.
+def connected_roof_members(planes: list[dict], bridge=None) -> list[dict]:
+    """Faces physically attached to the clicked one; see roof_graph."""
+    return select_connected(planes, bridge)[0]
 
-    Different known EGIDs remain separate buildings. Unknown identity can be
-    joined by a shared roof edge, but not by proximity or a corner alone.
-    """
-    if not planes:
-        return []
-    anchor = planes[0]
-    building = anchor["properties"].get("building_id")
-    members = [p for p in planes if building is not None and p["properties"].get("building_id") == building] or [anchor]
-    ids = {p["id"] for p in members}
-    known = {str(p["properties"]["gwr_egid"]) for p in members if p["properties"].get("gwr_egid")}
-    changed = True
-    while changed:
-        changed = False
-        footprint = unary_union([p["geometry"] for p in members])
-        for plane in planes:
-            if plane["id"] in ids:
-                continue
-            egid = plane["properties"].get("gwr_egid")
-            if egid and known and str(egid) not in known:
-                continue
-            geometry = plane["geometry"]
-            # A meaningful common edge tolerates small survey gaps. Mere
-            # corner contact or a nearby garden/another detached roof does not.
-            connected = geometry.intersection(footprint).area > .5 or (
-                geometry.distance(footprint) <= .35 and
-                geometry.boundary.intersection(footprint.buffer(.35)).length >= 1.5)
-            if connected:
-                members.append(plane)
-                ids.add(plane["id"])
-                if egid:
-                    known.add(str(egid))
-                changed = True
-    return members
+
+def roof_selection(planes: list[dict], bridge=None):
+    """Accepted faces plus the decision record behind each candidate."""
+    return select_connected(planes, bridge)
 
 
 async def expand_connected_roofs(client, features, click, warnings):
@@ -204,7 +177,7 @@ async def expand_connected_roofs(client, features, click, warnings):
     return features
 
 
-def merge_building(planes: list[dict], click: Point) -> dict | None:
+def merge_building(planes: list[dict], click: Point, bridge=None) -> dict | None:
     """Union every Sonnendach plane of the clicked building into one roof outline.
 
     Sonnendach splits a roof into one facet per pitch/azimuth - 58 of them on a
@@ -213,11 +186,18 @@ def merge_building(planes: list[dict], click: Point) -> dict | None:
     """
     if not planes:
         return None
-    anchor = planes[0]
+    anchor = next((p for p in planes if p.get("contains_click")), planes[0])
     building = anchor["properties"].get("building_id")
-    members = connected_roof_members(planes)
+    members, decisions = roof_selection(planes, bridge)
+    summary = rejected_summary(decisions)
     if len(members) == 1:
-        return anchor
+        # Carry the record even for a lone face: an empty member list used to
+        # fall back to "every plane with this building_id", which is exactly
+        # the selection this graph exists to prevent.
+        return {**anchor, "member_ids": [anchor["id"]], "merged_planes": 1,
+                "facets": [anchor["geometry"]], "decisions": decisions,
+                "selection_summary": summary,
+                "source_building_ids": [building] if building is not None else []}
     geometries = [p["geometry"] for p in members]
     merged = unary_union(geometries)
     if merged.geom_type != "Polygon":
@@ -247,6 +227,8 @@ def merge_building(planes: list[dict], click: Point) -> dict | None:
         "distance": 0.0,
         "merged_planes": len(members),
         "member_ids": [p["id"] for p in members],
+        "decisions": decisions,
+        "selection_summary": summary,
         "source_building_ids": sorted({p["properties"].get("building_id") for p in members
                                        if p["properties"].get("building_id") is not None}, key=str),
         "facets": geometries,
@@ -541,10 +523,10 @@ async def _prepare_capture(selection: MapSelection) -> dict:
         if selected is not None:
             building = selected["properties"].get("building_id")
             member_ids = set(selected.get("member_ids", []))
-            members = ([p for p in planes if p["id"] in member_ids or
-                        (not member_ids and p["properties"].get("building_id") == building)]
-                       if planes and (building is not None or member_ids) and
-                       (not selection.roof_id or selection.roof_id.startswith("building:")) else [selected])
+            members = ([p for p in planes if p["id"] in member_ids]
+                       if planes and member_ids and
+                       (not selection.roof_id or selection.roof_id.startswith("building:"))
+                       else [selected])
         members.sort(key=lambda p: p["id"])
         before = len(members)
         members = merge_coplanar(members)
@@ -593,6 +575,34 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                 model = await roof_model(client, facets, all_geometry.bounds, [p["properties"] for p in members])
                 detected, model_planes = model["obstacles"], model["planes"]
                 sunlight = model["sunlight"]
+                # Geometry chose these faces before any elevation was loaded.
+                # Now that the surface model is here, ask it whether building
+                # actually bridges each join, and withdraw the ones it does not
+                # support. The window is the one already fetched, so this costs
+                # no further download.
+                bridge = model.get("bridge")
+                if bridge is not None and len(members) > 1:
+                    kept, checks = select_connected(members, bridge)
+                    kept_ids = {p["id"] for p in kept}
+                    if len(kept) < len(members):
+                        dropped = [p["id"] for p in members if p["id"] not in kept_ids]
+                        keep = [i for i, p in enumerate(members) if p["id"] in kept_ids]
+                        members = [members[i] for i in keep]
+                        model_planes = [model_planes[i] for i in keep]
+                        sunlight = [sunlight[i] for i in keep]
+                        facets = [p["geometry"] for p in members]
+                        all_geometry = unary_union(facets)
+                        selected = {**selected, "bridge_checked": True,
+                                    "member_ids": sorted(kept_ids),
+                                    "decisions": checks,
+                                    "selection_summary": rejected_summary(checks)}
+                        warnings.append(
+                            f"Measured surface height withdrew {len(dropped)} roof "
+                            "face(s) that touch the selection on paper but have no "
+                            "building between them."
+                        )
+                    else:
+                        selected = {**selected, "bridge_checked": True}
             except ElevationUnavailable as exc:
                 warnings.append(
                     f"Roof superstructures could not be measured ({exc}). "
@@ -748,6 +758,13 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             + ". The register holds capacity, not position, so where the panels sit "
             "still comes from the image."
         )
+    summary = (selected or {}).get("selection_summary") or {}
+    if summary.get("rejected_sharing_building_id"):
+        warnings.append(
+            f"{summary['rejected_sharing_building_id']} roof polygon(s) share this "
+            "building's Sonnendach identifier but are not physically attached to the "
+            "roof you clicked, so they are excluded. Open the face list to see why."
+        )
     for note in vintage_service.findings(vintage, register):
         warnings.append(note)
     capture_id = uuid.uuid4().hex
@@ -765,6 +782,14 @@ async def _prepare_capture(selection: MapSelection) -> dict:
         "vintage": vintage,
         "roof_faces": [{**public_plane(p), "roof": pixel_ring(p["geometry"].exterior.coords, grid),
                         "plane": plane.describe()} for p, plane in zip(members, model_planes)],
+        "roof_selection": {
+            **((selected or {}).get("selection_summary") or {}),
+            "tolerance_m": TOUCH_TOLERANCE_M,
+            "physical_check": ("swissSURFACE3D above swissALTI3D terrain"
+                               if (selected or {}).get("bridge_checked")
+                               else "geometry only"),
+            "candidates": (selected or {}).get("decisions") or [],
+        },
         "image_base64": base64.b64encode(encoded.getvalue()).decode(),
         "mime_type": "image/jpeg",
         "roof": roof_pixels,

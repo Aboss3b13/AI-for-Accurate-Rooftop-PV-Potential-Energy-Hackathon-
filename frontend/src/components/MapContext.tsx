@@ -1,5 +1,6 @@
 import { MapPin, Check, RotateCcw } from "lucide-react";
 import Help from "./Help";
+import RoofSelectionCard from "./RoofSelectionCard";
 import type { MapCapture, MapPick } from "../mapTypes";
 
 export default function MapContext({
@@ -78,6 +79,7 @@ export default function MapContext({
           Restore official outline & alignment
         </button>
       )}
+      <RoofSelectionCard capture={capture} />
     </section>
   );
 }

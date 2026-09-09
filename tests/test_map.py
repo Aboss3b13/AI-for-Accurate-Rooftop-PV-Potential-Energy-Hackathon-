@@ -204,10 +204,14 @@ def test_merge_building_unions_every_plane_of_the_clicked_building():
     assert merged["properties"]["ausrichtung"] is None
 
 
-def test_merge_building_keeps_a_lone_plane_untouched():
+def test_merge_building_keeps_a_lone_plane_and_names_it_as_the_member():
     only = _plane(box(2640300, 1232900, 2640310, 1232910), "1:0", 7)
     merged = map_service.merge_building([only], Point(2640305, 1232905))
-    assert merged is only
+    assert merged["id"] == only["id"]
+    assert merged["geometry"] == only["geometry"]
+    # A lone face must still list itself: an empty member list used to mean
+    # "take every plane sharing this building_id", which is the bug.
+    assert merged["member_ids"] == ["1:0"]
 
 
 def test_merge_building_prefers_the_component_under_the_click():

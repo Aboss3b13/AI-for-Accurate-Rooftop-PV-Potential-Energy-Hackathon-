@@ -844,3 +844,59 @@
   line-height: 1.5;
   margin-top: 2px;
 }
+
+/* Why each candidate roof face was kept or dropped. */
+.selection-card {
+  border: 1px solid #dfe7d4;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-top: 14px;
+  background: #fff;
+}
+.selection-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.selection-list li {
+  border-left: 3px solid #c7d3b8;
+  padding-left: 11px;
+  margin-bottom: 11px;
+}
+.selection-list li.dropped {
+  border-left-color: #dda98f;
+}
+.selection-list li > div {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.selection-list strong {
+  font-size: 11px;
+  color: #294b36;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.selection-list em {
+  font-style: normal;
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #96a68c;
+}
+.selection-list em.clicked {
+  color: #4b7139;
+}
+.selection-list span {
+  display: block;
+  font-size: 10.5px;
+  color: #6d7c66;
+  margin-top: 3px;
+  line-height: 1.5;
+}
+.selection-list small {
+  display: block;
+  font-size: 9.5px;
+  color: #9baa8f;
+  margin-top: 2px;
+}

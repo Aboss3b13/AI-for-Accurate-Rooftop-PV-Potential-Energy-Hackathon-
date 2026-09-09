@@ -32,6 +32,16 @@ export type MapProvenance = {
   scale_basis: string;
   source_url: string;
 };
+export type RoofSelection = {
+  candidates: { id: string; accepted: boolean; reason: string;
+                building_id: number | null; egid: string | null;
+                contains_click: boolean }[];
+  accepted?: number;
+  rejected?: number;
+  rejected_sharing_building_id?: number;
+  tolerance_m: number;
+  physical_check: string;
+};
 export type MapCapture = {
   capture_id: string;
   roof_faces: (MapPlane & { roof: Point[]; plane: Record<string, unknown> })[];
@@ -42,6 +52,7 @@ export type MapCapture = {
   pixels_per_metre: number;
   angle: number;
   candidates: MapPlane[];
+  roof_selection?: RoofSelection;
   building_outline: MapPlane | null;
   selected_roof_id: string | null;
   warnings: string[];
