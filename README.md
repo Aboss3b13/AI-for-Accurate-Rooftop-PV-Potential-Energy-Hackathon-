@@ -163,7 +163,8 @@ Keep the app and tunnel running. The frontend and `/api` use the same origin, so
 | Windows blocks the `.bat` file | Right-click it → **Properties** → tick **Unblock** → OK |
 | The setup stops partway | Check your internet and double-click `START_SOLARFIT.bat` again — it picks up where it left off |
 | The page loads but the map is blank | The map needs internet. The AI itself runs offline, but the aerial photos are downloaded live |
-| Changes are not showing | Close the running SolarFit console and start it again. The launcher rebuilds changed frontend code; `REBUILD_SOLARFIT.bat` also refreshes setup |
+| Changes are not showing | Just start `START_SOLARFIT.bat` again — it closes the older backend itself and rebuilds changed frontend code; `REBUILD_SOLARFIT.bat` also refreshes setup |
+| `Port 8000 is held by another application` | Something that is **not** SolarFit has the port. The launcher will not close other people's programs, so close it yourself and start again |
 
 Starting SolarFit twice is fine: the launcher checks port 8000, and if an older
 SolarFit backend is there it **closes that one first**. A browser reload cannot
