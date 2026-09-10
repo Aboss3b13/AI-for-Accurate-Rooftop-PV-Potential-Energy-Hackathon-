@@ -171,3 +171,30 @@ def test_map_analysis_api_serialises_local_and_geographic_results():
     matrix = np.array(result["faces"][0]["diagnostics"]["local_to_world"])
     inverse = np.array(result["faces"][0]["diagnostics"]["world_to_local"])
     np.testing.assert_allclose(matrix @ inverse, np.eye(4), atol=1e-8)
+
+
+def test_pv_does_not_absorb_touching_awning_or_manual_obstacle():
+    objects = [
+        {"polygon": list(box(0, 0, 5, 5).exterior.coords), "source": "yolo", "kind": "existing_pv"},
+        {"polygon": list(box(4, 0, 12, 5).exterior.coords), "source": "image", "kind": "skylight"},
+        {"polygon": list(box(11, 0, 16, 5).exterior.coords), "source": "elevation", "kind": "other_obstacle"},
+        {"polygon": list(box(1, 1, 2, 2).exterior.coords), "source": "manual", "kind": "skylight"},
+    ]
+    result = deduplicate(objects)
+    pv = [o for o in result if o["kind"] == "existing_pv"]
+    assert len(pv) == 1 and pv[0]["geometry"].area == 25
+    assert any(o["source"] == "manual" for o in result)
+    assert any(o["kind"] == "other_obstacle" for o in result)
+
+
+def test_hirschlistrasse_pv_boundary_survives_obstacle_fusion():
+    import json
+    from pathlib import Path
+    from shapely.ops import unary_union
+    data = json.loads((Path(__file__).parent / "fixtures/hirschlistrasse_detection.json").read_text())
+    expected = unary_union([Polygon(o["polygon"]) for o in data["objects"] if o["kind"] == "existing_pv"])
+    result = deduplicate(data["objects"])
+    actual = unary_union([o["geometry"] for o in result if o["kind"] == "existing_pv"])
+    assert actual.symmetric_difference(expected).area < 1e-6
+    assert actual.area / data["pixels_per_metre"]**2 < 30
+    assert any(o["kind"] == "other_obstacle" for o in result)

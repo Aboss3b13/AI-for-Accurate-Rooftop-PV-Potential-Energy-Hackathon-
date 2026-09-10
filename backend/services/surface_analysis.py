@@ -60,7 +60,7 @@ def solar_data(props, override=None, performance_ratio=.8):
 
 
 def deduplicate(objects):
-    """Union overlapping evidence; PV wins over heuristic window classification.
+    """Combine duplicate evidence without growing PV into adjacent obstacles.
 
     Manual annotations keep their kind when merged with automatic obstacles.
     Touching boundaries alone do not merge separate detections.
@@ -72,7 +72,18 @@ def deduplicate(objects):
         geometry = item["geometry"]
         if geometry.is_empty:
             continue
-        hits = [old for old in merged if old["geometry"].intersection(geometry).area > 1e-6]
+        # A reflection entirely inside detected PV is duplicate evidence.
+        # Partial overlap with a dormer, awning or vent is not: unioning those
+        # different classes made the PV mask spread across the whole terrace.
+        if item["kind"] == "skylight" and item.get("source") == "image":
+            duplicate = next((old for old in merged if old["kind"] == "existing_pv"
+                and old["geometry"].intersection(geometry).area / geometry.area >= .95), None)
+            if duplicate is not None:
+                duplicate["sources"] = sorted(set(duplicate["sources"] + ["image"]))
+                duplicate["kinds"] = sorted(set(duplicate["kinds"] + [item["kind"]]))
+                continue
+        hits = [old for old in merged if old["kind"] == item["kind"]
+                and old["geometry"].intersection(geometry).area > 1e-6]
         if hits:
             first = hits[0]
             geometry = unary_union([geometry] + [h["geometry"] for h in hits])
