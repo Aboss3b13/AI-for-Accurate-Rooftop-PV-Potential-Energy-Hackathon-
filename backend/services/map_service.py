@@ -51,6 +51,27 @@ COPLANAR_GAP_M = 0.6
 FLAT_PITCH_DEG = 5.0
 
 
+def enclosing_roof_features(features, click):
+    """Select through an enclosed roof opening, never snap across a street."""
+    groups = {}
+    for feature in features:
+        properties = feature.get("properties") or feature.get("attributes") or {}
+        identifier = properties.get("building_id")
+        if identifier is not None:
+            groups.setdefault(identifier, []).append(feature)
+    matches = []
+    for group in groups.values():
+        planes = feature_planes(group, click)
+        if not planes:
+            continue
+        geometry = unary_union([p["geometry"] for p in planes])
+        parts = geometry.geoms if geometry.geom_type == "MultiPolygon" else [geometry]
+        for part in parts:
+            if part.geom_type == "Polygon" and Polygon(part.exterior).covers(click):
+                matches.append((part.area, group))
+    return min(matches, key=lambda pair: pair[0])[1] if matches else []
+
+
 class MapServiceError(Exception):
     pass
 
@@ -67,6 +88,43 @@ async def get_json(client: httpx.AsyncClient, path: str, params: dict) -> dict:
         raise MapServiceError("The Swiss map service could not complete this lookup.")
     geodata.put(key, data)
     return json.loads(json.dumps(data))
+
+
+async def building_address(client, geometry, click, egids):
+    """Only label verified registry matches, never an arbitrary nearby house."""
+    bounds = geometry.bounds if geometry is not None else click.buffer(15).bounds
+    bbox = ",".join(str(v + (-5 if i < 2 else 5)) for i, v in enumerate(bounds))
+    try:
+        data = await get_json(client, "/MapServer/identify", {
+            "geometry": bbox, "geometryType": "esriGeometryEnvelope",
+            "layers": "all:ch.bfs.gebaeude_wohnungs_register", "sr": 2056,
+            "geometryFormat": "geojson", "returnGeometry": "true", "tolerance": 0,
+            "mapExtent": bbox, "imageDisplay": "1000,1000,96", "limit": 100})
+        known = {str(e) for e in egids if e is not None}
+        matches = []
+        parts = ([] if geometry is None else
+                 list(geometry.geoms) if geometry.geom_type == "MultiPolygon" else [geometry])
+        for feature in data.get("results", []):
+            props = feature.get("properties") or feature.get("attributes") or {}
+            street = props.get("strname_deinr")
+            if not street:
+                continue
+            identity = str(props.get("egid")) in known
+            try:
+                point = Point(float(props["gkode"]), float(props["gkodn"]))
+                inside = any(Polygon(part.exterior).covers(point) for part in parts)
+            except (KeyError, TypeError, ValueError):
+                point, inside = click, False
+            if identity or inside:
+                label = f"{street}, {props.get('dplz4', '')} {props.get('dplzname', '')}".strip()
+                matches.append((not identity, point.distance(click), label, props.get("egid")))
+        if matches:
+            matches.sort()
+            return {"label": matches[0][2], "egid": matches[0][3],
+                    "source": "Federal Register of Buildings and Dwellings (GWR)"}
+    except (httpx.HTTPError, ValueError, MapServiceError):
+        pass
+    return None
 
 
 async def search_locations(query: str) -> list[dict]:
@@ -446,24 +504,42 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                 "Using the outline you drew. Scale comes from the map, so area and capacity stay metric."
             )
         else:
-            data = await get_json(
-                client,
-                "/MapServer/identify",
-                {
-                    "geometry": f"{x},{y}",
-                    "geometryType": "esriGeometryPoint",
-                    "layers": "all:" + ROOF_LAYER,
-                    "sr": 2056,
-                    "geometryFormat": "geojson",
-                    "returnGeometry": "true",
-                    "tolerance": 0,
-                    "lang": "en",
-                    "mapExtent": f"{x - 100},{y - 100},{x + 100},{y + 100}",
-                    "imageDisplay": "1000,1000,96",
-                },
-            )
-            features = data.get("results", [])
-            found = feature_planes(features, click)
+            try:
+                data = await get_json(
+                    client,
+                    "/MapServer/identify",
+                    {
+                        "geometry": f"{x},{y}",
+                        "geometryType": "esriGeometryPoint",
+                        "layers": "all:" + ROOF_LAYER,
+                        "sr": 2056,
+                        "geometryFormat": "geojson",
+                        "returnGeometry": "true",
+                        "tolerance": 0,
+                        "lang": "en",
+                        "mapExtent": f"{x - 100},{y - 100},{x + 100},{y + 100}",
+                        "imageDisplay": "1000,1000,96",
+                    },
+                )
+                features = data.get("results", [])
+                found = feature_planes(features, click)
+                if not found:
+                    # A centre click can land in an atrium excluded from the roof
+                    # polygon. Look for an enclosing building instead of picking
+                    # whichever neighbouring roof happens to be nearest.
+                    nearby = await get_json(client, "/MapServer/identify", {
+                        "geometry": f"{x-25},{y-25},{x+25},{y+25}",
+                        "geometryType": "esriGeometryEnvelope", "layers": "all:" + ROOF_LAYER,
+                        "sr": 2056, "geometryFormat": "geojson", "returnGeometry": "true",
+                        "tolerance": 0, "mapExtent": f"{x-50},{y-50},{x+50},{y+50}",
+                        "imageDisplay": "1000,1000,96", "limit": 1000, "lang": "en"})
+                    features = enclosing_roof_features(nearby.get("results", []), click)
+                    found = feature_planes(features, click)
+                    if found:
+                        warnings.append("Selected the building around the roof opening you clicked; the opening remains excluded.")
+            except (httpx.HTTPError, ValueError, MapServiceError):
+                features, found = [], []
+                warnings.append("Sonnendach lookup unavailable; checking measured 3D building geometry.")
             if found:
                 building = found[0]["properties"].get("building_id")
                 if building is not None:
@@ -515,28 +591,27 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                     f"Loaded {selected['merged_planes']} individual Sonnendach roof faces. "
                     "Each face is optimised independently."
                 )
-        if selected is None:
-            warnings.append(
-                "No automatic roof boundary selected. Scale is calibrated; draw the roof in the editor."
-            )
         geometry = selected["geometry"] if selected else None
         members = []
         # swissBUILDINGS3D decides the physical roof where it can. Sonnendach
         # stays for irradiation and suitability, matched face to face by
         # overlap. Any failure falls through to the Sonnendach geometry below.
         measured = None
-        if selected is not None and not selection.roof_id and not selection.polygon:
+        if not selection.roof_id and not selection.polygon:
             try:
                 building = await buildings3d.building_at(
                     client, selection.latitude, selection.longitude)
                 candidates = buildings3d.as_roof_planes(building, click, planes)
-                if candidates and any(p["contains_click"] for p in candidates):
+                if candidates and building["footprint"].buffer(1.5).covers(click):
+                    measured = {"building": building, "members": candidates}
+                elif candidates and any(Polygon(p.exterior).covers(click) for p in
+                        (building["footprint"].geoms if building["footprint"].geom_type == "MultiPolygon" else [building["footprint"]])):
                     measured = {"building": building, "members": candidates}
             except (buildings3d.Buildings3DUnavailable, httpx.HTTPError,
                     ValueError, KeyError, OSError, ImportError) as exc:
                 warnings.append(
                     f"Measured 3D building geometry unavailable ({exc}); "
-                    "the official roof faces were used instead."
+                    + ("the available Sonnendach faces were retained." if selected else "No automatic outline is available from this source.")
                 )
         building3d = None
         if measured is not None:
@@ -551,6 +626,20 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             building3d = {"outline": outline, "display": single,
                           "attributes": attributes,
                           "faces": measured["members"]}
+            if selected is None:
+                # Measured geometry can stand alone; solar attributes remain
+                # unknown rather than borrowing a neighbour's irradiation.
+                members = measured["members"]
+                selected = {**members[0], "geometry": single,
+                            "geometry_source": "swissbuildings3d",
+                            "member_ids": [p["id"] for p in members],
+                            "merged_planes": len(members)}
+                whole = selected
+                geometry = single
+                warnings.append("Roof found in swissBUILDINGS3D despite missing Sonnendach coverage. Annual solar yield is unavailable unless you supply it.")
+
+        if selected is None:
+            warnings.append("No automatic roof boundary found in Sonnendach or swissBUILDINGS3D. Scale is calibrated; draw the roof in the editor.")
 
         if selected is not None and not members:
             building = selected["properties"].get("building_id")
@@ -560,7 +649,7 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                        (not selection.roof_id or selection.roof_id.startswith("building:"))
                        else [selected])
         members.sort(key=lambda p: p["id"])
-        if building3d is not None and members:
+        if building3d is not None and members and selected.get("geometry_source") != "swissbuildings3d":
             # swissBUILDINGS3D decides how far the building reaches; Sonnendach
             # faces are kept for their shape and solar record but cut to it.
             # The measured faces themselves are too finely triangulated to pack
@@ -714,6 +803,7 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                 register = await registered_pv(client, egids)
             except RegisterUnavailable as exc:
                 warnings.append(f"Registered PV could not be checked ({exc}).")
+        address = await building_address(client, all_geometry, click, egids)
     props = selected["properties"] if selected else {}
     roof_pixels = (
         pixel_ring(geometry.exterior.coords, grid) if geometry is not None else []
@@ -876,9 +966,12 @@ async def _prepare_capture(selection: MapSelection) -> dict:
         "warnings": warnings,
         "provenance": {
             "imagery": "SWISSIMAGE / swisstopo",
+            "address": address,
             "roof_source": (
                 "Drawn on the map by you"
                 if selection.polygon is not None
+                else "swissBUILDINGS3D / swisstopo"
+                if selected and selected.get("geometry_source") == "swissbuildings3d"
                 else "Sonnendach / Swiss Federal Office of Energy"
                 if selected
                 else None

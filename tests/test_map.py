@@ -111,7 +111,7 @@ def test_prepare_uses_authoritative_geometry_and_wms_grid(monkeypatch):
     assert result["pixels_per_metre"] == 10
     assert Polygon(result["roof"]).area / 100 == pytest.approx(100)
     paths = [r.url.path for r in calls]
-    assert paths.count("/rest/services/ech/MapServer/identify") == 2
+    assert paths.count("/rest/services/ech/MapServer/identify") == 3
     assert paths.count("/rest/services/ech/MapServer/find") == 1
     assert paths.count("/") == 1  # the WMS image
     # The height model is consulted for chimneys, and its absence is survivable.
@@ -233,3 +233,54 @@ def test_small_facets_survive_for_merging_but_are_not_click_targets():
     planes = feature_planes(features, Point(2640305, 1232905))
     assert len(planes) == 2
     assert min(p["geometry"].area for p in planes) < map_service.MIN_CANDIDATE_AREA_M2
+
+
+def test_address_matches_building_not_closer_neighbour(monkeypatch):
+    async def lookup(*args):
+        return {"results": [{"properties": {
+            "egid": str(i), "strname_deinr": name, "dplz4": 5034,
+            "dplzname": "Suhr", "gkode": x, "gkodn": y}}
+            for i, name, x, y in [(1, "Wrong 1", -1, 0), (2, "Right 2", 5, 5)]]}
+    monkeypatch.setattr(map_service, "get_json", lookup)
+    result = asyncio.run(map_service.building_address(None, box(0, 0, 10, 10), Point(0, 0), []))
+    assert result["label"] == "Right 2, 5034 Suhr"
+    assert asyncio.run(map_service.building_address(None, None, Point(0, 0), [])) is None
+
+
+def test_courtyard_selects_enclosing_roof_and_preserves_hole():
+    roof = Polygon(box(0, 0, 20, 20).exterior, [box(7, 7, 13, 13).exterior])
+    features = [{"id": "atrium", "geometry": mapping_of(roof), "properties": {"building_id": 1}}]
+    selected = map_service.enclosing_roof_features(features, Point(10, 10))
+    assert selected == features
+    assert len(feature_planes(selected, Point(10, 10))[0]["geometry"].interiors) == 1
+    assert not map_service.enclosing_roof_features(features, Point(22, 10))
+
+
+@pytest.mark.parametrize("roof_status", [200, 503])
+def test_missing_sonnendach_uses_measured_flat_roof(monkeypatch, roof_status):
+    selection = MapSelection(latitude=47.1, longitude=8.1)
+    x, y = map_service.TO_SWISS.transform(selection.longitude, selection.latitude)
+    roof = box(x-10, y-10, x+10, y+10)
+    async def building(*args):
+        return {"batch_id": 1, "footprint": roof, "attributes": {}, "faces": [{
+            "geometry": roof, "pitch_deg": 0, "azimuth_deg": None,
+            "projected_area_m2": 400, "height_m": 420}]}
+    monkeypatch.setattr(map_service.buildings3d, "building_at", building)
+    def handler(request):
+        if request.url.host == "wms.geo.admin.ch":
+            q = request.url.params
+            stream = io.BytesIO()
+            Image.new("RGB", (int(q["WIDTH"]), int(q["HEIGHT"]))).save(stream, format="JPEG")
+            return httpx.Response(200, content=stream.getvalue(), headers={"content-type": "image/jpeg"})
+        return httpx.Response(200, json={"results": []})
+    original = httpx.AsyncClient
+    monkeypatch.setattr(map_service.httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
+    if roof_status == 503:
+        async def unavailable(*args):
+            raise httpx.ConnectError("Sonnendach offline")
+        monkeypatch.setattr(map_service, "get_json", unavailable)
+    result = asyncio.run(map_service._prepare_capture(selection))
+    assert len(result["roof"]) >= 4
+    assert result["provenance"]["roof_source"] == "swissBUILDINGS3D / swisstopo"
+    assert result["roof_faces"][0]["plane"]["source"] == "swissbuildings3d"
+    assert result["roof_faces"][0]["plane"]["pitch_deg"] == 0

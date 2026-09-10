@@ -89,7 +89,7 @@ def official_plane(geometry, properties, measured=None, samples=None):
     """
     try:
         pitch = float(properties["neigung"])
-        aspect = float(properties.get("ausrichtung", 0) if pitch < .1 else properties["ausrichtung"])
+        aspect = float((properties.get("ausrichtung") or 0) if pitch < .1 else properties["ausrichtung"])
         if not math.isfinite(pitch + aspect) or not (0 <= pitch < 85 and -180 <= aspect <= 180):
             raise ValueError("Invalid official angles")
     except (KeyError, TypeError, ValueError):
@@ -98,7 +98,8 @@ def official_plane(geometry, properties, measured=None, samples=None):
     slope = math.tan(math.radians(pitch))
     a, b = -slope*math.sin(azimuth), -slope*math.cos(azimuth)
     x, y = geometry.centroid.coords[0]
-    details = {"angle_source": "Sonnendach official roof face", "height_is_absolute": False,
+    source = properties.get("_geometry_source", "sonnendach")
+    details = {"angle_source": "swissBUILDINGS3D measured roof face" if source == "swissbuildings3d" else "Sonnendach official roof face", "height_is_absolute": False,
                "point_count": 0, "geometry_conflict": False,
                "roof_record_updated": properties.get("datum_aenderung")}
     try:
@@ -140,4 +141,4 @@ def official_plane(geometry, properties, measured=None, samples=None):
             details.update(height_anchor_m=z, height_anchor="approximate",
                            height_is_absolute=True)
     details["plane_equation"] = {"a_dz_dx": a, "b_dz_dy": b, "z_at_origin": z}
-    return RoofPlane.from_slopes(x, y, z, a, b, "sonnendach", details)
+    return RoofPlane.from_slopes(x, y, z, a, b, source, details)

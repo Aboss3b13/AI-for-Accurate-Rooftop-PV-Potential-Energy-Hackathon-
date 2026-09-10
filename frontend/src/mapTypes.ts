@@ -12,6 +12,7 @@ export type MapPlane = {
   contains_click: boolean;
 };
 export type MapProvenance = {
+  address?: { label: string; egid: string | number | null; source: string } | null;
   imagery: string;
   roof_source: string | null;
   crs: string;

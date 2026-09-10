@@ -215,11 +215,11 @@ def data_provenance(register, faces, objects, model):
     windows = sum(1 for o in objects if o.get("source") == "image")
     manual = sum(1 for o in objects if o.get("source") == "manual")
     fitted = sum(1 for f in faces if f["plane"].source != "projected_2d")
+    roof_sources = sorted({f["plane"].source for f in faces})
     return [
         {"fact": "Roof outline, pitch and orientation", "kind": "measured",
-         "source": "Sonnendach roof faces (SFOE), height-validated against "
-                   "swissSURFACE3D",
-         "detail": f"{len(faces)} face(s), {fitted} with a supported height fit"},
+         "source": ", ".join(roof_sources) + "; heights checked against swissSURFACE3D where available",
+         "detail": f"{len(faces)} face(s), {fitted} with supported surface geometry"},
         {"fact": "Annual irradiation", "kind": "measured",
          "source": "Sonnendach mean annual irradiation per face",
          "detail": "Already includes orientation, tilt and horizon shading"},

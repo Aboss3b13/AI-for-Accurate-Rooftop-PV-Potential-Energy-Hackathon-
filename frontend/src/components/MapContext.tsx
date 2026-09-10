@@ -30,6 +30,7 @@ export default function MapContext({
           Scale calibrated
         </strong>
       </div>
+      <p>{p.address?.label ?? "Address unavailable"} / {p.latitude.toFixed(6)}, {p.longitude.toFixed(6)}</p>
       <div className="map-facts">
         <span>
           {(100 / capture.pixels_per_metre).toFixed(1)} cm / image pixel
@@ -61,7 +62,8 @@ export default function MapContext({
       <p>
         {edited
           ? "Boundary adjusted by you."
-          : "Official outline imported automatically."}{" "}
+          : capture.roof.length > 2 ? "Official outline imported automatically."
+          : "No roof outline was returned. Draw the roof or select a point on its surface."}{" "}
         Drag vertices or redraw the roof; mark any missed PV or obstacles, then
         analyse again.
       </p>
