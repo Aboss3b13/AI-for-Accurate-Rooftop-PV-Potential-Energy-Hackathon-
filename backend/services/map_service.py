@@ -650,6 +650,36 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                        (not selection.roof_id or selection.roof_id.startswith("building:"))
                        else [selected])
         members.sort(key=lambda p: p["id"])
+        if building3d is not None and members:
+            # The measured footprint says how far the building reaches, so any
+            # official face inside it belongs to this roof even when the
+            # connectivity walk never reached its record. A Ruemlang building
+            # lost a whole 150 m2 wing that way.
+            outline = building3d["outline"]
+            known = {p["id"] for p in members}
+            minx, miny, maxx, maxy = outline.bounds
+            try:
+                extra = await get_json(client, "/MapServer/identify", {
+                    "geometry": f"{minx-2},{miny-2},{maxx+2},{maxy+2}",
+                    "geometryType": "esriGeometryEnvelope",
+                    "layers": "all:" + ROOF_LAYER, "sr": 2056,
+                    "geometryFormat": "geojson", "returnGeometry": "true",
+                    "tolerance": 0,
+                    "mapExtent": f"{minx-20},{miny-20},{maxx+20},{maxy+20}",
+                    "imageDisplay": "1000,1000,96", "limit": 500, "lang": "en"})
+                for plane in feature_planes(extra.get("results", []), click):
+                    if plane["id"] in known:
+                        continue
+                    covered = plane["geometry"].intersection(outline).area
+                    if covered >= max(MIN_PLANE_AREA_M2,
+                                      0.6 * plane["geometry"].area):
+                        members.append(plane)
+                        known.add(plane["id"])
+            except (httpx.HTTPError, ValueError, MapServiceError):
+                warnings.append(
+                    "Roof faces inside the measured footprint could not all be "
+                    "fetched; part of the building may be missing.")
+            members.sort(key=lambda p: p["id"])
         if building3d is not None and members and selected.get("geometry_source") != "swissbuildings3d":
             # swissBUILDINGS3D decides how far the building reaches; Sonnendach
             # faces are kept for their shape and solar record but cut to it.
@@ -756,10 +786,13 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                                     "member_ids": sorted(kept_ids),
                                     "decisions": checks,
                                     "selection_summary": rejected_summary(checks)}
+                        why = {}
+                        for check in checks:
+                            if not check["accepted"]:
+                                why[check["reason"].split(" (")[0]] = True
                         warnings.append(
-                            f"Measured surface height withdrew {len(dropped)} roof "
-                            "face(s) that touch the selection on paper but have no "
-                            "building between them."
+                            f"Withdrew {len(dropped)} roof face(s) after the height "
+                            "check: " + "; ".join(sorted(why)) + "."
                         )
                     else:
                         selected = {**selected, "bridge_checked": True}
@@ -768,6 +801,19 @@ async def _prepare_capture(selection: MapSelection) -> dict:
                     f"Roof superstructures could not be measured ({exc}). "
                     "Mark chimneys and roof windows by hand."
                 )
+        if building3d is not None and members:
+            # Draw what was analysed, and only after the height check has had
+            # its say. The measured solid can span two dwellings under separate
+            # identifiers - a Ruemlang pair shares one roof under EGIDs 36499
+            # and 36500 - and outlining a neighbour's half while proposing
+            # nothing on it is the wrong half of the truth.
+            analysed = unary_union([p["geometry"] for p in members])
+            if analysed.geom_type == "MultiPolygon":
+                analysed = max(analysed.geoms, key=lambda g: g.area)
+            if analysed.geom_type == "Polygon" and not analysed.is_empty:
+                geometry = bounded_simplify(analysed) or analysed
+                selected = {**selected, "geometry": geometry}
+                whole = {**(whole or selected), "geometry": geometry}
         image = Image.open(io.BytesIO(image_content)).convert("RGB")
         if image.size != (grid["width"], grid["height"]):
             raise MapServiceError(

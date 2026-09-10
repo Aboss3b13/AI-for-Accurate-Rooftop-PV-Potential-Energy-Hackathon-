@@ -1,4 +1,9 @@
 """Explainable planning rules. No invented demand, payback or structural approval."""
+
+# Below this pitch a roof is effectively flat and its recorded aspect means
+# little; above it, aspect decides whether mounting is worth doing at all.
+ASPECT_MATTERS_ABOVE_DEG = 10.0
+NORTH_SECTOR_DEG = 35.0
 import math
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -24,6 +29,16 @@ def assess_face(plane, solar, sunlight, settings):
         reasons.append("Calculated roof dimensions disagree with the official surface area by more than 20%.")
     if description["pitch_deg"] > 65:
         reasons.append("Pitch exceeds the prototype's 65-degree roof-installation screening limit.")
+    # A pitched face turned towards the pole never repays its mounting, whatever
+    # its irradiation figure says: a Ruemlang roof at 352 degrees and
+    # 840 kWh/m2 cleared the irradiation screen and took 25 modules.
+    aspect = description.get("azimuth_deg")
+    if (aspect is not None and description["pitch_deg"] >= ASPECT_MATTERS_ABOVE_DEG
+            and min(aspect, 360 - aspect) <= NORTH_SECTOR_DEG):
+        reasons.append(
+            f"Faces {aspect:.0f}°, within {NORTH_SECTOR_DEG:g}° of north, at a "
+            f"{description['pitch_deg']:.0f}° pitch. A pole-facing pitch is not "
+            "worth mounting on.")
     irradiation = solar.get("irradiation_kwh_m2_year")
     if irradiation is not None and irradiation < settings.minimum_irradiation:
         reasons.append(f"Official annual irradiation is below the {settings.minimum_irradiation:g} kWh/m² screening threshold.")
@@ -39,6 +54,8 @@ def assess_face(plane, solar, sunlight, settings):
     return {"status": "not_recommended" if reasons else "needs_review" if cautions else "suitable",
             "eligible": not reasons, "reasons": reasons, "cautions": cautions,
             "rules": {"minimum_irradiation_kwh_m2": settings.minimum_irradiation,
+                      "north_sector_deg": NORTH_SECTOR_DEG,
+                      "aspect_matters_above_pitch_deg": ASPECT_MATTERS_ABOVE_DEG,
                       "minimum_direct_sun_access": settings.minimum_sun_access,
                       "minimum_array_panels": settings.minimum_array_panels, "maximum_pitch_deg": 65}}
 
