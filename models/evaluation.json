@@ -1,0 +1,22 @@
+{
+  "split": "test",
+  "metrics": {
+    "metrics/precision(B)": 0.6526881999787059,
+    "metrics/recall(B)": 0.728220910052573,
+    "metrics/mAP50(B)": 0.7297311933614092,
+    "metrics/mAP50-95(B)": 0.5430892815192034,
+    "metrics/precision(M)": 0.6589995635343864,
+    "metrics/recall(M)": 0.73125,
+    "metrics/mAP50(M)": 0.7358813144182766,
+    "metrics/mAP50-95(M)": 0.5277041778115505,
+    "fitness": 1.070793459330754
+  },
+  "speed_ms": {
+    "preprocess": 0.2190453503930638,
+    "inference": 5.817340695716137,
+    "loss": 0.0030011633075340545,
+    "postprocess": 1.8013819752986608
+  },
+  "capacity_metrics": null,
+  "limitations": "PV regions only. No obstacle or installation ground truth supplied; capacity accuracy is not established."
+}

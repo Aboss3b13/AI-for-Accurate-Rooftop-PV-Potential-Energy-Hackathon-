@@ -1,0 +1,902 @@
+.source-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 13px;
+}
+.source-switch button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #dce5d5;
+  background: #fff;
+  color: #6c7c61;
+  border-radius: 7px;
+  padding: 11px 15px;
+  font-size: 11px;
+}
+.source-switch button.selected {
+  background: #244f3d;
+  color: #fff;
+  border-color: #244f3d;
+}
+.source-switch > span {
+  margin-left: auto;
+  font-size: 10px;
+  color: #8b9880;
+}
+.satellite-card {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 13px;
+  overflow: hidden;
+  position: relative;
+}
+.satellite-card[hidden],
+.canvas-card[hidden] {
+  display: none;
+}
+.map-heading {
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.map-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.map-heading strong {
+  font-size: 13px;
+}
+.map-heading > div > span {
+  font-size: 10px;
+  color: #95a086;
+  margin-left: 5px;
+}
+.map-auto-pill {
+  font-size: 9px;
+  border-radius: 15px;
+  padding: 6px 9px;
+  color: #66803d;
+  background: #eef6e1;
+}
+.map-search {
+  margin: 0 17px 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #d9e4d0;
+  border-radius: 7px;
+  background: #fafcf6;
+  padding-left: 12px;
+  color: #7b9067;
+}
+.map-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 13px 0;
+  outline-offset: -2px;
+  font-size: 12px;
+  color: #345636;
+}
+.map-search button {
+  border: 0;
+  background: #edf4e3;
+  color: #4f6b38;
+  align-self: stretch;
+  padding: 0 17px;
+  border-radius: 0 6px 6px 0;
+  font-size: 11px;
+}
+.map-search-results {
+  position: absolute;
+  top: 112px;
+  left: 17px;
+  right: 17px;
+  z-index: 1200;
+  background: #fff;
+  box-shadow: 0 9px 25px #1b3a2330;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.map-search-results button {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  text-align: left;
+  width: 100%;
+  padding: 13px;
+  border: 0;
+  border-bottom: 1px solid #edf0e5;
+  background: #fff;
+  color: #536d41;
+  font-size: 11px;
+}
+.map-search-results button svg:first-child {
+  flex-shrink: 0;
+}
+.map-search-results button svg:last-child {
+  margin-left: auto;
+}
+.map-stage {
+  height: 490px;
+  position: relative;
+  background: #e1e8d9;
+}
+.satellite-map {
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  background: #dce5d1;
+}
+.satellite-map .leaflet-control-attribution {
+  font-size: 9px;
+}
+.satellite-map .leaflet-control-scale-line {
+  font-size: 10px;
+}
+.map-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 450;
+  color: white;
+  font-size: 28px;
+  font-weight: 200;
+  text-shadow: 0 1px 3px #000;
+}
+.map-instruction {
+  position: absolute;
+  left: 50%;
+  bottom: 31px;
+  transform: translateX(-50%);
+  z-index: 450;
+  background: #ffffffeb;
+  padding: 11px 16px;
+  border-radius: 6px;
+  color: #325532;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 10px #0002;
+}
+.map-working {
+  position: absolute;
+  inset: 0;
+  z-index: 1100;
+  background: #183f35bd;
+  backdrop-filter: blur(2px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 17px;
+  color: #fff;
+  text-align: center;
+  padding: 25px;
+}
+.map-working strong {
+  font-size: 15px;
+  font-weight: 500;
+}
+.map-working span {
+  font-size: 11px;
+  color: #dceccf;
+}
+.map-actions {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  padding: 15px 17px;
+}
+.map-actions .primary {
+  font-size: 11px;
+  padding: 12px 15px;
+}
+.map-actions > span {
+  margin-left: auto;
+  font-size: 9px;
+  color: #9baa8f;
+}
+.map-disclosure {
+  font-size: 9px;
+  color: #929f86;
+  margin: 0;
+  padding: 0 17px 15px;
+  line-height: 1.6;
+}
+.map-message {
+  background: #fff6e9;
+  border: 1px solid #f0dfc2;
+  color: #946f40;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 12px;
+  margin: 12px 17px;
+}
+.map-context {
+  border: 1px solid #dce6ce;
+  border-radius: 10px;
+  padding: 15px 17px;
+  margin-bottom: 13px;
+  background: #f0f6e7;
+}
+.map-context-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+}
+.map-context-title > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.map-context-title strong {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  color: #70914e;
+}
+.map-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 16px;
+  margin: 13px 0;
+  font-size: 10px;
+  color: #739059;
+}
+.map-context p {
+  font-size: 10px;
+  line-height: 1.7;
+  color: #8b9c7a;
+  margin: 6px 0;
+}
+.roof-plane-select {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  font-size: 10px;
+  color: #6d8456;
+  margin-bottom: 12px;
+}
+.roof-plane-select select {
+  font: inherit;
+  color: #426537;
+  background: white;
+  border: 1px solid #cfddbf;
+  border-radius: 5px;
+  padding: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.source-switch,
+.satellite-card,
+.map-context {
+  order: 0;
+}
+@media (max-width: 1100px) {
+  .map-heading > div > span,
+  .map-auto-pill,
+  .source-switch > span,
+  .map-actions > span {
+    display: none;
+  }
+  .map-stage {
+    height: 440px;
+  }
+}
+@media (max-width: 800px) {
+  .source-switch {
+    margin: 0;
+  }
+  .satellite-card {
+    width: 100%;
+  }
+  .map-context {
+    margin: 0;
+  }
+  .map-stage {
+    height: 470px;
+  }
+}
+@media (max-width: 500px) {
+  .map-stage {
+    height: 380px;
+  }
+  .map-actions {
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .map-actions .primary {
+    flex: 1;
+  }
+  .map-instruction {
+    font-size: 9px;
+    padding: 10px 12px;
+  }
+  .header-right {
+    gap: 6px;
+  }
+  .header-right .upload-button {
+    padding: 8px;
+    font-size: 9px;
+    gap: 4px;
+  }
+  .header-right .upload-button svg {
+    width: 13px;
+  }
+  .map-context-title {
+    align-items: flex-start;
+  }
+  .map-heading {
+    padding: 14px;
+  }
+  .map-search {
+    margin: 0 13px 13px;
+  }
+  .source-switch button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+/* Mode switch: official roof lookup vs drawing your own outline. */
+.map-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 17px 0;
+}
+.map-mode-switch button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #dce5d5;
+  background: #fff;
+  color: #6c7c61;
+  border-radius: 7px;
+  padding: 9px 14px;
+  font-size: 11px;
+}
+.map-mode-switch button.selected {
+  background: #244f3d;
+  color: #fff;
+  border-color: #244f3d;
+}
+.map-mode-switch button:disabled {
+  opacity: 0.5;
+}
+.map-actions .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* "?" explainers. */
+.help {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+.help-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dce5d5;
+  background: #fff;
+  color: #7d8d72;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  cursor: pointer;
+}
+.help-button:hover,
+.help-button[aria-expanded="true"] {
+  background: #244f3d;
+  border-color: #244f3d;
+  color: #fff;
+}
+.help-bubble {
+  position: fixed;
+  z-index: 4000;
+  display: block;
+  background: #12291d;
+  color: #eaf3e4;
+  border-radius: 9px;
+  padding: 12px 14px;
+  font-size: 11px;
+  line-height: 1.65;
+  font-weight: 400;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  box-shadow: 0 14px 34px rgba(11, 32, 20, 0.28);
+}
+.help-bubble strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 11px;
+  color: #d5ff8f;
+}
+.help-bubble b {
+  color: #d5ff8f;
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .map-mode-switch {
+    flex-wrap: wrap;
+  }
+}
+
+.mode-control-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8b9880;
+}
+/* Keep the "?" on the label's own line without disturbing existing layout. */
+.metrics dt,
+.settings-grid h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.advanced-grid label {
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 6px;
+}
+.advanced-grid label > input,
+.advanced-grid label > select {
+  flex: 1 1 100%;
+}
+/* Checkbox rows stay inline; only the numeric fields take a full row. */
+.advanced-grid .check-label > input {
+  flex: 0 0 auto;
+}
+
+/* --- Design pass: one clear control row per decision --- */
+
+/* The source switch and the map mode switch read as one connected control. */
+.source-switch,
+.map-mode-switch {
+  gap: 4px;
+}
+.source-switch button,
+.map-mode-switch button {
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    color 0.14s ease;
+}
+.source-switch button:hover:not(.selected):not(:disabled),
+.map-mode-switch button:hover:not(.selected):not(:disabled) {
+  border-color: #b9c9ac;
+  color: #3f5238;
+}
+.map-mode-switch button.selected {
+  box-shadow: 0 2px 8px rgba(36, 79, 61, 0.18);
+}
+
+/* Actions sit on their own quiet band, separated from the map. */
+.map-actions {
+  border-top: 1px solid #eef2e8;
+  background: #fcfdfa;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.map-actions > span {
+  flex-basis: 100%;
+  margin-left: 0;
+  order: 9;
+  color: #97a68b;
+}
+@media (min-width: 861px) {
+  .map-actions > span {
+    flex-basis: auto;
+    margin-left: auto;
+  }
+}
+.map-actions .primary:disabled {
+  opacity: 0.45;
+}
+
+/* The live hint over the map is information, not decoration. */
+.map-instruction {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.surface-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 16px; margin: 18px 0; }
+.surface-facts span { display: flex; flex-direction: column; gap: 5px; font-size: 14px; color: #55664b; }
+.surface-facts b { font-size: 16px; color: #244f3d; }
+.surface-objective { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
+.surface-objective button { padding: 9px 12px; border-radius: 8px; }
+.surface-objective button.selected { color: #15251b; background: #d5ff8f; }
+.surface-objective label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.surface-objective input { width: 120px; padding: 8px; }
+.surface-inspector pre { max-height: 360px; overflow: auto; font-size: 11px; }
+.surface-inspector .map-context-title strong, .surface-inspector .roof-plane-select { font-size: 14px; color: #244f3d; }
+.surface-inspector p { font-size: 14px; color: #55664b; }
+.site-assessment { border-bottom: 1px solid #cfddbf; padding-bottom: 16px; margin-bottom: 18px; }
+.site-assessment > strong { font-size: 18px; color: #244f3d; }
+.surface-inspector summary { cursor: pointer; font-size: 14px; color: #244f3d; margin: 12px 0; }
+.surface-objective input[type="checkbox"] { width: 16px; height: 16px; accent-color: #244f3d; }
+.face-verdict { padding: 12px; background: #ffffffa8; border-radius: 8px; text-transform: none; }
+.face-verdict > b { text-transform: capitalize; color: #244f3d; }
+.layer.shade > span { background: #8061b8; }
+
+/* Official Sonnendach potential against what actually fits. */
+.sonnendach-card {
+  border: 1px solid #dfe7d4;
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 18px;
+  background: #fff;
+}
+.sonnendach-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.sonnendach-bars > div {
+  margin-bottom: 13px;
+}
+.sonnendach-bars span {
+  display: block;
+  font-size: 10px;
+  color: #8b9880;
+  margin-bottom: 5px;
+}
+.sonnendach-bars .bar {
+  height: 10px;
+  border-radius: 5px;
+  background: #eef2e8;
+  overflow: hidden;
+}
+.sonnendach-bars .bar i {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+}
+.sonnendach-bars .official i {
+  background: #c7d3b8;
+}
+.sonnendach-bars .fitted i {
+  background: #4b7139;
+}
+.sonnendach-bars strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #1f4432;
+}
+.sonnendach-bars small {
+  font-size: 10px;
+  font-weight: 500;
+  color: #8b9880;
+}
+.sonnendach-delta {
+  margin: 4px 0 16px;
+  font-size: 11px;
+  color: #7a8872;
+}
+.sonnendach-delta b {
+  color: #a8481f;
+  font-size: 14px;
+  margin-right: 5px;
+}
+.sonnendach-why {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8b9880;
+  margin-bottom: 9px;
+}
+.sonnendach-breakdown {
+  margin: 0;
+}
+.sonnendach-breakdown > div {
+  margin-bottom: 9px;
+}
+.sonnendach-breakdown dt {
+  font-size: 11px;
+  color: #5d6b56;
+  margin-bottom: 4px;
+}
+.sonnendach-breakdown dd {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+}
+.sonnendach-breakdown dd i {
+  display: block;
+  height: 7px;
+  border-radius: 4px;
+  background: #d7b26a;
+  min-width: 2px;
+}
+.sonnendach-breakdown dd span {
+  font-size: 10px;
+  color: #8b9880;
+  white-space: nowrap;
+}
+.sonnendach-basis {
+  margin: 14px 0 0;
+  font-size: 9px;
+  line-height: 1.65;
+  color: #9baa8f;
+}
+
+/* A roof that fits modules but is recommended none must say why. */
+.blocked-note {
+  border: 1px solid #efe0c2;
+  background: #fdf8ee;
+  border-radius: 11px;
+  padding: 15px 16px;
+  margin: 4px 0 18px;
+}
+.blocked-note strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a6d2f;
+  margin-bottom: 7px;
+}
+.blocked-note p {
+  margin: 0 0 7px;
+  font-size: 11px;
+  line-height: 1.65;
+  color: #7a6b4e;
+}
+.blocked-note ul {
+  margin: 0 0 7px;
+  padding-left: 16px;
+}
+.blocked-note li {
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: #8a7a5c;
+  margin-bottom: 3px;
+}
+.blocked-lever {
+  color: #9a8a6c !important;
+  font-size: 10px !important;
+}
+
+/* Where every number came from. */
+.provenance-card {
+  border: 1px solid #dfe7d4;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-top: 18px;
+  background: #fff;
+}
+.provenance-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.provenance-head .eyebrow {
+  flex: 1;
+}
+.provenance-tally {
+  font-size: 10px;
+  color: #8b9880;
+  white-space: nowrap;
+}
+.provenance-head svg {
+  color: #8b9880;
+  transition: transform 0.15s ease;
+}
+.provenance-head svg.flip {
+  transform: rotate(180deg);
+}
+.provenance-lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.65;
+  color: #6d7c66;
+}
+.provenance-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.provenance-list li {
+  border-left: 3px solid #c7d3b8;
+  padding: 0 0 0 11px;
+  margin-bottom: 13px;
+}
+.provenance-list li.kind-inferred {
+  border-left-color: #d7b26a;
+}
+.provenance-list li.kind-supplied {
+  border-left-color: #9fb8d7;
+}
+.provenance-list li > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.provenance-list strong {
+  font-size: 11.5px;
+  color: #294b36;
+}
+.provenance-list em {
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #96a68c;
+}
+.provenance-list span {
+  display: block;
+  font-size: 10.5px;
+  color: #6d7c66;
+  margin-top: 3px;
+  line-height: 1.55;
+}
+.provenance-list small {
+  display: block;
+  font-size: 9.5px;
+  color: #9baa8f;
+  margin-top: 3px;
+  line-height: 1.55;
+}
+
+/* Survey dates, and confidence attached to each input. */
+.vintage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.vintage-row span {
+  font-size: 9.5px;
+  color: #7d8d72;
+  background: #f2f6ec;
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+.vintage-row b {
+  color: #294b36;
+}
+.confidence-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  border-top: 1px solid #eef2e8;
+  padding-top: 12px;
+}
+.confidence-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 8px;
+}
+.confidence-list .level {
+  flex: 0 0 auto;
+  min-width: 74px;
+  text-align: center;
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 5px;
+  padding: 4px 5px;
+  background: #eef2e8;
+  color: #6d7c66;
+}
+.confidence-list .level-high {
+  background: #dff0cd;
+  color: #40632c;
+}
+.confidence-list .level-medium {
+  background: #fbf0d4;
+  color: #8a6d2f;
+}
+.confidence-list .level-low {
+  background: #f7dfd4;
+  color: #9a5533;
+}
+.confidence-list .level-not-assessed {
+  background: #eceff2;
+  color: #6c7883;
+}
+.confidence-list strong {
+  display: block;
+  font-size: 11px;
+  color: #294b36;
+}
+.confidence-list small {
+  display: block;
+  font-size: 9.5px;
+  color: #9baa8f;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+/* Why each candidate roof face was kept or dropped. */
+.selection-card {
+  border: 1px solid #dfe7d4;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-top: 14px;
+  background: #fff;
+}
+.selection-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.selection-list li {
+  border-left: 3px solid #c7d3b8;
+  padding-left: 11px;
+  margin-bottom: 11px;
+}
+.selection-list li.dropped {
+  border-left-color: #dda98f;
+}
+.selection-list li > div {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.selection-list strong {
+  font-size: 11px;
+  color: #294b36;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.selection-list em {
+  font-style: normal;
+  font-size: 8.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #96a68c;
+}
+.selection-list em.clicked {
+  color: #4b7139;
+}
+.selection-list span {
+  display: block;
+  font-size: 10.5px;
+  color: #6d7c66;
+  margin-top: 3px;
+  line-height: 1.5;
+}
+.selection-list small {
+  display: block;
+  font-size: 9.5px;
+  color: #9baa8f;
+  margin-top: 2px;
+}

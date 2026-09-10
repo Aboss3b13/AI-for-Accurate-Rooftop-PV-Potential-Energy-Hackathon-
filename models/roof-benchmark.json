@@ -1,0 +1,76 @@
+{
+  "measured_at": "2026-09-09T17:29:26.335847+00:00",
+  "cases": [
+    {
+      "case": "zurich",
+      "latitude": 47.37796628110402,
+      "longitude": 8.541166222603481,
+      "first_pass_seconds": 7.436458199983463,
+      "placement_valid": true,
+      "checked_panels": 834,
+      "empty_roof_grid_panel_count": 1692,
+      "additional_panel_count": 834,
+      "capacity_change_fraction": -0.5070921985815603,
+      "comparison_note": "Empty-roof grid ignores occupancy and screening. This measures planning impact, not accuracy.",
+      "warm_seconds": [
+        0.9177255999529734,
+        1.0453434999799356,
+        1.0754376000259072
+      ],
+      "fallback_faces": 0,
+      "pv_regions": 0,
+      "shadow_available_faces": 5
+    },
+    {
+      "case": "bern",
+      "latitude": 46.95239282008464,
+      "longitude": 7.428339431895318,
+      "first_pass_seconds": 2.0942813999718055,
+      "placement_valid": true,
+      "checked_panels": 44,
+      "empty_roof_grid_panel_count": 243,
+      "additional_panel_count": 44,
+      "capacity_change_fraction": -0.8189300411522634,
+      "comparison_note": "Empty-roof grid ignores occupancy and screening. This measures planning impact, not accuracy.",
+      "warm_seconds": [
+        0.28204200009349734,
+        0.2895876000402495,
+        0.2964955000206828
+      ],
+      "fallback_faces": 0,
+      "pv_regions": 3,
+      "shadow_available_faces": 21
+    },
+    {
+      "case": "brugg",
+      "latitude": 47.481398953809006,
+      "longitude": 8.206642078830201,
+      "first_pass_seconds": 1.3655979000031948,
+      "placement_valid": true,
+      "checked_panels": 51,
+      "empty_roof_grid_panel_count": 68,
+      "additional_panel_count": 51,
+      "capacity_change_fraction": -0.25,
+      "comparison_note": "Empty-roof grid ignores occupancy and screening. This measures planning impact, not accuracy.",
+      "warm_seconds": [
+        0.06475909997243434,
+        0.09712729998864233,
+        0.06648819998372346
+      ],
+      "fallback_faces": 0,
+      "pv_regions": 0,
+      "shadow_available_faces": 1
+    }
+  ],
+  "first_pass_existing_disk_cache": {
+    "p50_seconds": 2.0942813999718055,
+    "p95_seconds": 6.902240519982296,
+    "samples": 3
+  },
+  "warm": {
+    "p50_seconds": 0.2895876000402495,
+    "p95_seconds": 1.0633999600075186,
+    "samples": 9
+  },
+  "limitations": "Three fixed roofs, not a representative accuracy sample. Existing disk caches retained. No manually labelled obstacle ground truth; no precision/recall claims. Model warmup included in first pass."
+}

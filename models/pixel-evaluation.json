@@ -1,0 +1,20 @@
+{
+  "split": "test",
+  "tiles": 172,
+  "image_size": 640,
+  "confidence_threshold": 0.25,
+  "geographic_group_overlap": 0,
+  "model_sha256": "14cb6b82a44445aef1b27bebe2bdff3a98a1c58e6ea35947126e22ab7d43d52e",
+  "pixel_counts": {
+    "tp": 329158,
+    "fp": 205899,
+    "fn": 53177
+  },
+  "micro_pixel_metrics": {
+    "iou": 0.5595698310536283,
+    "f1": 0.7175950956624867,
+    "precision": 0.615183055263271,
+    "recall": 0.8609151660193286
+  },
+  "limitations": "Converted polygon masks, not original binary masks. Adjacent kilometre groups may occur across splits. Negative tiles were subsampled during conversion. Does not establish national generalisation or obstacle/capacity accuracy."
+}
