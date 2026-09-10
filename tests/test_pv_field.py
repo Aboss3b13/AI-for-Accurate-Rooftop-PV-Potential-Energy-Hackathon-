@@ -190,3 +190,84 @@ def test_a_shaded_patch_beside_a_real_array_is_left_out():
     assert found, "the real array must still be found"
     for face in found:
         assert face["geometry"].centroid.y < 190
+
+
+def test_a_modestly_blue_array_is_still_found():
+    """The gate was fitted to one very blue roof and rejected most real ones.
+
+    Measured arrays on nine Zurich roofs sit between +8 and +15 on the blue
+    axis, not the +30 of the warehouse the threshold came from.
+    """
+    image = roof_image(red=124, green=120, blue=116)
+    image = put_array(image, 60, 60, 180, 170)
+    # Bring the modules down to about +12 on the blue axis, the middle of the
+    # range measured on real roofs, without making them dark enough to read as
+    # shade - that is a separate test.
+    image[60:170, 60:180, 2] = np.clip(
+        image[60:170, 60:180, 2].astype(np.int16) - 33, 0, 255).astype(np.uint8)
+    found = pv.detect(image, ROOF, PPM)
+    assert found, "an array only ten points bluer than its roof was missed"
+
+
+def test_the_outline_does_not_wander_off_the_modules():
+    """Simplification is a distance, not a fraction of the perimeter.
+
+    As a fraction it grew with the region, so a roof-sized array was traced
+    with a five-metre tolerance and its outline cut across bare roof.
+    """
+    image = put_array(roof_image(), 30, 30, 210, 210)
+    found = pv.detect(image, ROOF, PPM)
+    assert found
+    traced = found[0]["geometry"]
+    truth = box(30, 30, 210, 210)
+    assert traced.difference(truth).area / truth.area < 0.05
+
+
+def test_a_courtyard_inside_an_array_is_not_claimed():
+    """A large gap ringed by modules is roof, and must stay available."""
+    image = put_array(roof_image(), 40, 40, 200, 200)
+    image[100:150, 100:150] = roof_image()[100:150, 100:150]
+    found = pv.detect(image, ROOF, PPM)
+    assert found
+    assert not found[0]["geometry"].contains(box(110, 110, 140, 140)), \
+        "the courtyard was claimed as array"
+
+
+def test_two_arrays_joined_by_a_walkway_are_reported_as_blocks():
+    """Merged blocks are split, not discarded.
+
+    A thin bridge between two module fields made one sprawling region that
+    failed the compactness test, and thousands of square metres of genuine
+    array were dropped for it.
+    """
+    image = roof_image()
+    image = put_array(image, 30, 30, 100, 210)
+    image = put_array(image, 140, 30, 210, 210)
+    image = put_array(image, 100, 110, 140, 125)   # the bridge
+    found = pv.detect(image, ROOF, PPM)
+    assert sum(a["area_m2"] for a in found) > 20.0, \
+        "the joined arrays were thrown away instead of split"
+
+
+def test_splitting_leaves_a_single_solid_block_alone():
+    image = put_array(roof_image(), 60, 60, 180, 170)
+    part = np.zeros((SIZE, SIZE), bool)
+    part[60:170, 60:180] = True
+    assert pv.split_blocks(part, 100, 1.5 * PPM) == []
+
+
+def test_an_outline_fits_through_the_api():
+    """A tighter tolerance produced outlines the API refused, failing the
+    whole analysis with a validation error rather than losing one array."""
+    rng = np.random.default_rng(7)
+    image = roof_image()
+    image = put_array(image, 20, 20, 220, 220)
+    # Chew a ragged edge into the field so its outline is genuinely complex.
+    for _ in range(400):
+        x, y = rng.integers(20, 215, 2)
+        image[y:y + 4, x:x + 4] = roof_image()[y:y + 4, x:x + 4]
+    for array in pv.detect(image, ROOF, PPM):
+        ring = array["geometry"]
+        assert len(ring.exterior.coords) <= pv.MAX_VERTICES + 1
+        for hole in ring.interiors:
+            assert len(hole.coords) <= pv.MAX_VERTICES + 1

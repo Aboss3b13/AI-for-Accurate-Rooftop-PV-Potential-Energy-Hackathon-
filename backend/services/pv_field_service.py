@@ -22,9 +22,15 @@ import numpy as np
 from shapely.geometry import Polygon
 
 # The bright class must be genuinely blue, not merely the bluer half of grey.
-# A plain Oerlikon roof split its parapet and a shaded band at +15; the arrays
-# on a Binzstrasse warehouse sit at +30.
-MIN_ABSOLUTE_BLUE = 18.0
+# How blue an array photographs varies far more than a single roof suggested:
+# the Binzstrasse warehouse this was first tuned on sits at +30, but measured
+# arrays on nine other Zurich roofs run from +8 (Gruenmattstrasse 40, a full
+# roof of modules) to +15. At +18 the gate rejected every one of them, so the
+# colour route was switched off almost everywhere it was needed. Roofs with no
+# array split at or below zero - a Ruemlang tile roof at -3, an Uetlibergstrasse
+# roof at -1 - so the useful line lies just above zero, not near the brightest
+# example. Shade and solidity, not this, are what keep false arrays out.
+MIN_ABSOLUTE_BLUE = 5.0
 # ...and the two classes must actually be distinct populations.
 MIN_SEPARATION = 14.0
 # When even the darker class is this blue, both sides of the split are array.
@@ -43,6 +49,13 @@ EDGE_MARGIN_M = 0.3
 # Modules carry cell and frame lines, so an array is never smoother than the
 # roof it sits on. This rejects smooth blue-grey metal sheeting.
 MIN_TEXTURE_RATIO = 1.0
+# Modules are laid in rectangular blocks, so a real array is compact. Where the
+# colour split spills along walkways it produces the opposite: a thin-walled
+# blob wrapping around plant rooms. Rather than discard such a component - which
+# on a roof-sized field threw away thousands of square metres of genuine array
+# merely because separate blocks had touched - open it by this much and judge
+# the pieces. A walkway two metres wide disappears; a block of modules does not.
+SPLIT_M = 1.5
 # An array is a compact block of modules. The same Oerlikon roof produced a
 # ragged edge band at 0.45; the real arrays measured 0.61 and above.
 MIN_SOLIDITY = 0.55
@@ -50,12 +63,28 @@ MIN_SOLIDITY = 0.55
 # aerial frame reliably tells those two apart. Reporting shade as an existing
 # array is the worse error - it wipes a usable roof off the estimate - so a
 # component well below its roof's own brightness is refused unless it is blue
-# in absolute terms, which shade never is.
+# in absolute terms, which shade never is. This keeps its own floor: it asks
+# "is this blue enough to be a module despite being dark", which is a stronger
+# question than "is there an array on this roof at all", and it must not follow
+# that gate down.
 SHADE_GREY_RATIO = 0.70
+SHADE_BLUE_FLOOR = 18.0
 # Gaps between module rows, and the odd vent standing inside an array, should
 # not break one field into fragments.
 CLOSE_M = 1.2
 MAX_HOLE_M2 = 15.0
+# How far the traced outline may depart from the pixels it describes. This has
+# to be a real distance: as a fraction of perimeter it grew with the component,
+# so a roof-sized array on Hardstrasse got a five-metre tolerance and its
+# outline cut straight across bare gravel, claiming roof that is free to build
+# on. A quarter of a metre follows the edge of a module.
+SIMPLIFY_M = 0.25
+# ...but an outline still has to fit through the API, which takes at most 200
+# vertices per polygon. A roof-sized array traced at a quarter of a metre runs
+# to several hundred, and the whole analysis was rejected for it. Where that
+# happens the tolerance is relaxed until the outline fits, which costs a little
+# precision on the largest arrays and nothing at all on ordinary ones.
+MAX_VERTICES = 180
 
 
 def _mask_from(polygon, shape) -> np.ndarray:
@@ -111,6 +140,32 @@ def fill_small_holes(mask: np.ndarray, max_pixels: int) -> np.ndarray:
     return filled
 
 
+def _components(mask: np.ndarray, min_pixels: float):
+    """Connected regions of a binary mask, as (boolean mask, pixel count)."""
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(
+        mask.astype(np.uint8), 8)
+    return [(labels == i, int(stats[i, 4])) for i in range(1, count)
+            if stats[i, 4] >= min_pixels]
+
+
+def split_blocks(part: np.ndarray, min_pixels: float, width_px: float):
+    """Break a sprawling region at its narrow waists and return the blocks.
+
+    Opening removes anything thinner than the kernel, so walkways and the
+    single-module bridges that weld separate arrays together fall away while
+    the blocks themselves survive. The pieces are then grown back so each block
+    keeps its true extent rather than the eroded one.
+    """
+    size = max(3, int(round(width_px)) | 1)
+    kernel = np.ones((size, size), np.uint8)
+    cores = cv2.morphologyEx(part.astype(np.uint8), cv2.MORPH_OPEN, kernel)
+    pieces = _components(cores, min_pixels)
+    if len(pieces) < 2:
+        return []
+    return [(cv2.dilate(piece.astype(np.uint8), kernel).astype(bool) & part,
+             None) for piece, _ in pieces]
+
+
 def detect(
     image: np.ndarray,
     roof: Polygon,
@@ -151,6 +206,7 @@ def detect(
         # texture and solidity checks still have to agree it is an array.
         threshold = float(np.percentile(blue[core], 2))
 
+    texture = np.abs(cv2.Laplacian(grey, cv2.CV_32F, ksize=3))
     hit = (core & (blue >= threshold)).astype(np.uint8)
     # Open first to drop speckle, then close the gaps between module rows so an
     # array reads as one region rather than a comb of stripes.
@@ -163,16 +219,19 @@ def detect(
     if not hit.any():
         return []
 
-    texture = np.abs(cv2.Laplacian(rgb.mean(2), cv2.CV_32F, ksize=3))
     roof_texture = float(np.median(texture[core])) or 1.0
     cell = 1.0 / (pixels_per_metre**2)
-    count, labels, stats, _ = cv2.connectedComponentsWithStats(hit, 8)
     found = []
-    for index in range(1, count):
-        pixels = stats[index, 4]
-        if pixels * cell < MIN_AREA_M2:
+    floor_px = MIN_AREA_M2 * pixels_per_metre**2
+    # Regions still to judge. A region that fails only because separate blocks
+    # have merged is split once and its blocks judged in its place.
+    queue = [(part, pixels, True) for part, pixels in _components(hit, floor_px)]
+    while queue:
+        part, pixels, may_split = queue.pop()
+        if pixels is None:
+            pixels = int(part.sum())
+        if pixels < floor_px:
             continue
-        part = labels == index
         if float(texture[part].mean()) / roof_texture < MIN_TEXTURE_RATIO:
             continue
         # Shade is the false positive that matters: a shaded half of a roof
@@ -182,19 +241,33 @@ def detect(
         mean_blue = float(blue[part].mean())
         mean_grey = float(grey[part].mean())
         if (mean_grey < SHADE_GREY_RATIO * roof_grey
-                and mean_blue < MIN_ABSOLUTE_BLUE):
+                and mean_blue < SHADE_BLUE_FLOOR):
             continue
-        contours, _ = cv2.findContours(
-            part.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        contours, hierarchy = cv2.findContours(
+            part.astype(np.uint8), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
         )
         if not contours:
             continue
-        contour = max(contours, key=cv2.contourArea)
-        epsilon = max(1.0, 0.01 * cv2.arcLength(contour, True))
-        approx = cv2.approxPolyDP(contour, epsilon, True).reshape(-1, 2)
-        if len(approx) < 3:
+        epsilon = max(1.0, SIMPLIFY_M * pixels_per_metre)
+
+        def traced(contour, tolerance):
+            approx = cv2.approxPolyDP(contour, tolerance, True).reshape(-1, 2)
+            return [(float(x), float(y)) for x, y in approx]
+
+        outer = max(range(len(contours)), key=lambda k: cv2.contourArea(contours[k]))
+        shell = traced(contours[outer], epsilon)
+        while len(shell) > MAX_VERTICES:
+            epsilon *= 1.5
+            shell = traced(contours[outer], epsilon)
+        if len(shell) < 3:
             continue
-        polygon = Polygon([(float(x), float(y)) for x, y in approx])
+        # Courtyards and plant rooms standing inside a ring of modules are not
+        # array, and a filled outline would take that roof out of the estimate.
+        holes = [traced(c, epsilon) for k, c in enumerate(contours)
+                 if hierarchy is not None and hierarchy[0][k][3] == outer
+                 and cv2.contourArea(c) > (MIN_AREA_M2 * pixels_per_metre**2)]
+        polygon = Polygon(shell, [h for h in holes
+                                  if 3 <= len(h) <= MAX_VERTICES])
         if not polygon.is_valid:
             polygon = polygon.buffer(0)
         if polygon.geom_type != "Polygon" or polygon.is_empty:
@@ -204,6 +277,10 @@ def detect(
         # filled rectangle and score a perfect solidity.
         hull = polygon.convex_hull.area
         if hull <= 0 or pixels / hull < MIN_SOLIDITY:
+            if may_split:
+                queue.extend((piece, None, False) for piece, _ in
+                             split_blocks(part, floor_px,
+                                          SPLIT_M * pixels_per_metre))
             continue
         found.append(
             {
