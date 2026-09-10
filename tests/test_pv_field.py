@@ -156,30 +156,37 @@ def put_dark_array(image, x0, y0, x1, y1, seed=12):
     return image
 
 
-def test_a_dark_array_on_a_red_roof_is_found():
-    # It never reaches the absolute blue floor, only relative blueness plus
-    # being much darker than the tiles around it.
+def test_deep_shade_is_never_reported_as_an_array():
+    """The error that matters: shade reported as PV removes a usable roof.
+
+    A shaded half of a roof was returned as an existing array, which takes it
+    out of the estimate altogether.
+    """
+    image = roof_image().astype(np.float32)
+    image[:, : SIZE // 2] *= 0.35          # deep shade
+    image[:, : SIZE // 2, 2] += 14         # sky-lit, so bluer as well as darker
+    assert pv.detect(np.clip(image, 0, 255).astype(np.uint8), ROOF, PPM) == []
+
+
+def test_a_dark_array_on_a_red_roof_is_deliberately_not_claimed():
+    """An all-black array and deep shade look alike in one aerial frame.
+
+    Nothing here separates them, so the darker case is left to the trained
+    model and to manual marking rather than guessed at from brightness.
+    """
     image = put_dark_array(red_tile_roof(), 60, 60, 180, 170)
-    found = pv.detect(image, ROOF, PPM)
-    assert found
-    assert max(f["area_m2"] for f in found) > 80
+    assert pv.detect(image, ROOF, PPM) == []
 
 
 def test_a_bare_red_roof_claims_nothing():
     assert pv.detect(red_tile_roof(), ROOF, PPM) == []
 
 
-def test_darkness_never_overrides_a_working_blue_cue():
-    """On a light roof the blue cue works, and darkness must stay out of it.
-
-    Letting both run swept shade and darker bare roof into a Binzstrasse
-    warehouse, inflating an accurate 1,621 m2 to 2,035 m2.
-    """
+def test_a_shaded_patch_beside_a_real_array_is_left_out():
     image = put_array(roof_image(), 60, 60, 180, 170)
     # A dark but featureless patch elsewhere: shade, not modules.
     image[190:215, 30:90] = (70, 68, 66)
     found = pv.detect(image, ROOF, PPM)
-    assert found
+    assert found, "the real array must still be found"
     for face in found:
-        # Nothing reported down in the shaded strip.
         assert face["geometry"].centroid.y < 190

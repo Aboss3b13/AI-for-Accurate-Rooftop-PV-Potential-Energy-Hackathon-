@@ -586,6 +586,16 @@ never smoother than its roof — that rejects blue-grey sheeting — and a real
 array is solid, which rejects the bluish parapet band that a flat Oerlikon roof
 otherwise offered up as a 74 m² "array".
 
+**Shade is never reported as an array.** A component markedly darker than its
+own roof is refused unless it is blue in absolute terms, which shade is not.
+This matters more than it sounds: a shaded half of a roof returned as existing
+PV does not merely mislabel it, it removes that roof from the estimate.
+
+The cost is deliberate and worth stating. An all-black array on a clay roof is
+also dark and also not absolutely blue, and nothing in a single aerial frame
+separates the two reliably. That case is left to the trained model and to
+manual marking rather than guessed at from brightness.
+
 A roof that is *all* array is the hard case, and the first version failed it
 completely. Otsu still splits, but into brighter and darker modules rather than
 array against roof: on a region that is nothing but modules the two classes lie
