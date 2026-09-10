@@ -381,6 +381,19 @@ async def building_at(client: httpx.AsyncClient, latitude: float, longitude: flo
     point = Point(x, y)
     hits = building_batches(tile, point) or building_batches(tile, point, 1.5)
     if not hits:
+        # Clicking an atrium is still a building selection. Use actual outer
+        # rings, not convex hulls that could span unrelated neighbouring roofs.
+        enclosing = []
+        for candidate in np.unique(tile["batch"]):
+            boundary = footprint(tile, int(candidate))
+            if boundary is None:
+                continue
+            parts = boundary.geoms if boundary.geom_type == "MultiPolygon" else [boundary]
+            if any(Polygon(part.exterior).covers(point) for part in parts):
+                enclosing.append((boundary.area, int(candidate)))
+        if enclosing:
+            hits = [min(enclosing)[1]]
+    if not hits:
         raise Buildings3DUnavailable("No 3D building covers this point")
     identifier = max(hits, key=lambda b: (footprint(tile, b) or Polygon()).area)
     outline = footprint(tile, identifier)

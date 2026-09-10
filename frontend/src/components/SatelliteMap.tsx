@@ -298,6 +298,7 @@ export default function SatelliteMap({
           {drawing ? "Drawing your own outline" : "Automatic scale + roof outline"}
         </span>
       </div>
+      {capture && <p className="map-facts" aria-live="polite">{capture.provenance.address?.label ?? "Address unavailable"} / {capture.provenance.latitude.toFixed(6)}, {capture.provenance.longitude.toFixed(6)}</p>}
       <form className="map-search" onSubmit={search}>
         <Search size={17} />
         <input

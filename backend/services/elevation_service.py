@@ -461,7 +461,7 @@ async def roof_model(client: httpx.AsyncClient, facets: list[Polygon], bounds, p
                 valid = mask & np.isfinite(heights)
                 plane = official_plane(facet, props, measured, (xs[valid], ys[valid], heights[valid]))
                 planes.append(plane)
-                if plane.source == "sonnendach" and plane.describe()["height_is_absolute"]:
+                if plane.source in ("sonnendach", "swissbuildings3d") and plane.describe()["height_is_absolute"]:
                     a = -plane.normal[0]/plane.normal[2]
                     b = -plane.normal[1]/plane.normal[2]
                     residual = heights-(plane.origin[2]+a*(xs-plane.origin[0])+b*(ys-plane.origin[1]))
