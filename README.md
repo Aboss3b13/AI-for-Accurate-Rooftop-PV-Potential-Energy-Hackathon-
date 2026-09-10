@@ -680,6 +680,36 @@ instead of showing a bare zero.
 
 ---
 
+## Lining the geometry up with the photograph
+
+SWISSIMAGE is orthorectified against the **terrain, not against buildings**, so
+a building leans away from the point the camera was over. Its roof is drawn a
+metre or two from where its coordinates put it, and the gap grows with height.
+
+That is not cosmetic. The roof outline, chimneys and terrain exclusions come
+from map coordinates, while existing arrays and rooflights are found in the
+image. Left uncorrected, each set is applied to the wrong part of the other's
+roof — and the outline drawn on screen sits off the building.
+
+Every capture is therefore aligned once: the roof outline is slid over the
+image's own edges and kept where it sits on them best. Measured on real
+captures, a Binzstrasse warehouse needs **2.8 m**, a Rümlang house **1.8 m**,
+in different directions. The shift is folded into the capture's map/image
+conversion, so both directions agree and detections land on the right roof.
+
+The correction is refused rather than guessed when it cannot be trusted:
+
+- when the outline already sits on the roof (no meaningful gain),
+- when the best position lies against the wall of the search, since the real
+  optimum is then further out,
+- and when no position puts the outline on real structure — an outline over
+  blank ground scores near zero, where any flicker of noise beats it by a wide
+  ratio and the estimator would confidently align to nothing.
+
+The applied shift is reported with the result.
+
+---
+
 ## How the modules are laid out
 
 A pitched roof and a flat roof are mounted differently, and the layout follows

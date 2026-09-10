@@ -33,15 +33,26 @@ def parts(geometry):
 
 
 class GeoReference:
+    """Map/image conversion, carrying the capture's own alignment offset.
+
+    The photograph is corrected for terrain, not for building height, so a roof
+    appears a metre or two from its coordinates. Both directions apply the same
+    measured shift, which keeps geometry read from the map and detections found
+    in the image describing the same piece of roof.
+    """
+
     def __init__(self, grid):
         self.x, _, _, self.y = grid["bbox"]
         self.ppm = grid["pixels_per_metre"]
+        self.shift_x, self.shift_y = grid.get("shift_px", (0.0, 0.0))
 
     def world(self, x, y, z=None):
-        return self.x + np.asarray(x)/self.ppm, self.y - np.asarray(y)/self.ppm
+        return (self.x + (np.asarray(x) - self.shift_x)/self.ppm,
+                self.y - (np.asarray(y) - self.shift_y)/self.ppm)
 
     def pixel(self, x, y, z=None):
-        return (np.asarray(x)-self.x)*self.ppm, (self.y-np.asarray(y))*self.ppm
+        return ((np.asarray(x)-self.x)*self.ppm + self.shift_x,
+                (self.y-np.asarray(y))*self.ppm + self.shift_y)
 
 
 def solar_data(props, override=None, performance_ratio=.8):

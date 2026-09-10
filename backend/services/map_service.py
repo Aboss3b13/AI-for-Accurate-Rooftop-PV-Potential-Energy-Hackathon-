@@ -24,6 +24,7 @@ from backend.services.roof_plane import RoofPlane, official_plane
 from backend.services.runtime_cache import captures, prepared, geodata, imagery
 from backend.services.roof_graph import TOUCH_TOLERANCE_M, rejected_summary, select_connected
 from backend.services import buildings3d_service as buildings3d
+from backend.services.image_alignment import estimate_shift
 from backend.services.rooflight_service import detect as detect_rooflights
 from backend.services.pv_field_service import detect as detect_pv_fields
 from backend.services.pv_register_service import RegisterUnavailable, registered_pv
@@ -467,8 +468,12 @@ def capture_grid(geometry: Polygon | None, center: Point, span_m=64) -> dict:
 def pixel_ring(coords, grid: dict) -> list[list[float]]:
     minx, _, _, maxy = grid["bbox"]
     ppm = grid["pixels_per_metre"]
+    # The photograph shows a building leaning away from the camera, so map
+    # geometry has to move with it. Zero until the capture has been aligned.
+    shift_x, shift_y = grid.get("shift_px", (0.0, 0.0))
     points = [
-        [round((x - minx) * ppm, 4), round((maxy - y) * ppm, 4)] for x, y, *_ in coords
+        [round((x - minx) * ppm + shift_x, 4), round((maxy - y) * ppm + shift_y, 4)]
+        for x, y, *_ in coords
     ]
     return points[:-1] if points[0] == points[-1] else points
 
@@ -819,6 +824,23 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             raise MapServiceError(
                 "The map image size did not match its scale. Please retry."
             )
+        # Everything below converts between map and image, so settle the offset
+        # between the two before any of it runs.
+        alignment_result = {"applied": False, "shift_m": (0.0, 0.0),
+                            "reason": "no roof outline to align"}
+        if geometry is not None:
+            alignment_result = estimate_shift(
+                np.asarray(image), pixel_ring(geometry.exterior.coords, grid),
+                grid["pixels_per_metre"])
+            if alignment_result["applied"]:
+                grid["shift_px"] = alignment_result["shift_px"]
+                east, north = alignment_result["shift_m"]
+                warnings.append(
+                    f"Roof geometry moved {abs(east):.1f} m east/west and "
+                    f"{abs(north):.1f} m north/south to match the photograph. "
+                    "Aerial images are corrected for terrain, not for building "
+                    "height, so a tall roof is drawn away from its coordinates."
+                )
         encoded = io.BytesIO()
         image.save(encoded, format="JPEG", quality=95)
         # How old each source is. Five datasets answer for one roof and none
@@ -891,8 +913,11 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             )
     if geometry is not None and roof_pixels:
         # Flush roof windows never reach the height model; the photo shows them.
-        outline = transform(lambda x, y: ((np.asarray(x)-grid["bbox"][0])*grid["pixels_per_metre"],
-                                           (grid["bbox"][3]-np.asarray(y))*grid["pixels_per_metre"]), all_geometry)
+        shift_x, shift_y = grid.get("shift_px", (0.0, 0.0))
+        outline = transform(
+            lambda x, y: ((np.asarray(x)-grid["bbox"][0])*grid["pixels_per_metre"] + shift_x,
+                          (grid["bbox"][3]-np.asarray(y))*grid["pixels_per_metre"] + shift_y),
+            all_geometry)
         if outline.is_valid:
             already = [Polygon(o["polygon"]) for o in objects]
             already = [p for p in already if p.is_valid]
@@ -1006,6 +1031,7 @@ async def _prepare_capture(selection: MapSelection) -> dict:
         "vintage": vintage,
         "roof_faces": [{**public_plane(p), "roof": pixel_ring(p["geometry"].exterior.coords, grid),
                         "plane": plane.describe()} for p, plane in zip(members, model_planes)],
+        "alignment": alignment_result,
         "roof_selection": {
             **((selected or {}).get("selection_summary") or {}),
             "tolerance_m": TOUCH_TOLERANCE_M,
