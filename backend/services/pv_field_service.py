@@ -46,6 +46,15 @@ MIN_TEXTURE_RATIO = 1.0
 # An array is a compact block of modules. The same Oerlikon roof produced a
 # ragged edge band at 0.45; the real arrays measured 0.61 and above.
 MIN_SOLIDITY = 0.55
+# Second route, for a dark array on a red-tile roof. There the modules never
+# reach the absolute blue floor - a Gruenmattstrasse roof runs -38 to +1 on that
+# axis - but they are 20 units bluer and 65 grey levels darker than the tiles
+# around them. An array is always darker than its roof; the parapet band that
+# once passed for one was lighter, which is what separates the two.
+MIN_RELATIVE_BLUE = 12.0
+MIN_DARKNESS = 25.0
+MIN_DARK_SEPARATION = 30.0
+MAX_DARK_SHARE = 0.60
 # Gaps between module rows, and the odd vent standing inside an array, should
 # not break one field into fragments.
 CLOSE_M = 1.2
@@ -126,8 +135,26 @@ def detect(
         return []
 
     blue = rgb[..., 2] - rgb[..., 0]
+    grey = rgb.mean(2)
+    roof_blue = float(np.median(blue[core]))
+    roof_grey = float(np.median(grey[core]))
     threshold, bright_mean, separation, share, dark_mean = split_threshold(blue[core])
     covered = dark_mean >= COVERED_DARK_BLUE
+    blue_route = covered or not (
+        bright_mean < MIN_ABSOLUTE_BLUE or separation < MIN_SEPARATION
+        or share > MAX_BRIGHT_SHARE)
+
+    # Darkness read the same way: "bright" here means the darker class.
+    dark_cut, dark_side, dark_sep, dark_share, _ = split_threshold(-grey[core])
+    # Only where the blue cue cannot work. Darkness is the weaker signal: on a
+    # light gravel roof it sweeps in shade and darker bare roof, which inflated
+    # a Binzstrasse warehouse from an accurate 1,621 m2 to 2,035 m2.
+    dark_route = (not blue_route
+                  and dark_sep >= MIN_DARK_SEPARATION
+                  and dark_share <= MAX_DARK_SHARE
+                  and (-dark_side) <= roof_grey - MIN_DARKNESS)
+    if not blue_route and not dark_route:
+        return []
     if covered:
         # Both classes are array-blue, so Otsu divided one array into its
         # brighter and darker modules instead of separating it from the roof.
@@ -135,13 +162,12 @@ def detect(
         # rejects it, and every module is missed. Take the whole blue field; the
         # texture and solidity checks still have to agree it is an array.
         threshold = float(np.percentile(blue[core], 2))
-    elif (bright_mean < MIN_ABSOLUTE_BLUE or separation < MIN_SEPARATION
-            or share > MAX_BRIGHT_SHARE):
-        # The share guard only applies without that positive evidence: it is
-        # there to refuse a roof with no contrast, not a roof that is all array.
-        return []
 
-    hit = (core & (blue >= threshold)).astype(np.uint8)
+    hit = np.zeros(core.shape, np.uint8)
+    if blue_route:
+        hit |= (core & (blue >= threshold)).astype(np.uint8)
+    if dark_route:
+        hit |= (core & (grey <= -dark_cut)).astype(np.uint8)
     # Open first to drop speckle, then close the gaps between module rows so an
     # array reads as one region rather than a comb of stripes.
     hit = cv2.morphologyEx(hit, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
@@ -164,6 +190,15 @@ def detect(
             continue
         part = labels == index
         if float(texture[part].mean()) / roof_texture < MIN_TEXTURE_RATIO:
+            continue
+        # Either strongly blue in its own right, or darker than the roof while
+        # still being relatively bluer than it. Shade is darker too, which the
+        # texture ratio above is there to refuse.
+        mean_blue = float(blue[part].mean())
+        mean_grey = float(grey[part].mean())
+        if not (mean_blue >= MIN_ABSOLUTE_BLUE
+                or (mean_blue - roof_blue >= MIN_RELATIVE_BLUE
+                    and roof_grey - mean_grey >= MIN_DARKNESS)):
             continue
         contours, _ = cv2.findContours(
             part.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -191,6 +226,7 @@ def detect(
                 "geometry": polygon,
                 "area_m2": round(polygon.area * cell, 2),
                 "blue_shift": round(float(blue[part].mean()), 1),
+                "darker_than_roof": round(roof_grey - float(grey[part].mean()), 1),
             }
         )
     found.sort(key=lambda o: -o["area_m2"])

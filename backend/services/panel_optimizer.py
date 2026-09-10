@@ -1,4 +1,11 @@
-"""Deterministic physical grid search. Coordinates are pixels; dimensions are metres."""
+"""Deterministic physical grid search. Coordinates are pixels; dimensions are metres.
+
+A pitched roof mounts modules flush against it, so they sit shoulder to shoulder
+with a couple of centimetres between them. A flat roof does not: modules go on
+tilted racks, and a rack shades the one behind it. Rows are therefore spaced by
+the shadow the design sun casts, which on the Swiss plateau at the winter
+solstice is a wider gap than the module itself.
+"""
 
 import math
 import numpy as np
@@ -9,7 +16,29 @@ MAX_CANDIDATES = 120_000
 OFFSET_STEPS = 4
 
 
-def optimise_panels(usable, ppm, panel, angle=0, diagnostics=None):
+def row_gap(panel, tilt_deg, module_length) -> float:
+    """Ground gap that keeps a rack clear of its neighbour's shadow.
+
+    The row behind clears the one in front when the horizontal shadow of a
+    tilted module fits in the gap: length * sin(tilt) / tan(sun altitude).
+    """
+    tilt = math.radians(max(0.0, tilt_deg))
+    altitude = math.radians(max(1.0, panel.design_sun_altitude_deg))
+    if tilt <= 1e-6:
+        return 0.0
+    return module_length * math.sin(tilt) / math.tan(altitude)
+
+
+def flat_roof_layout(panel, module_length) -> tuple[float, float]:
+    """Footprint depth and row gap for a tilted rack, both in metres."""
+    tilt = math.radians(max(0.0, panel.flat_roof_tilt_deg))
+    depth = module_length * math.cos(tilt)
+    gap = (panel.row_gap_m if panel.row_gap_m is not None
+           else row_gap(panel, panel.flat_roof_tilt_deg, module_length))
+    return depth, gap
+
+
+def optimise_panels(usable, ppm, panel, angle=0, diagnostics=None, tilted=False):
     if diagnostics is not None:
         diagnostics.update(candidate_layouts_tested=0, candidate_panels_tested=0)
     if usable.is_empty:
@@ -22,9 +51,14 @@ def optimise_panels(usable, ppm, panel, angle=0, diagnostics=None):
         ("portrait", panel.width, panel.height),
         ("landscape", panel.height, panel.width),
     ]:
-        width, height = w * ppm, h * ppm
-        dx, dy = (w + panel.gap) * ppm, (h + panel.gap) * ppm
-        count = math.ceil((maxx - minx) / dx) * math.ceil((maxy - miny) / dy)
+        # On a rack the module leans back, so its footprint is shorter than the
+        # module and the next row starts a shadow's length further on.
+        depth, gap_between_rows = (flat_roof_layout(panel, h) if tilted
+                                   else (h, panel.gap))
+        width, height = w * ppm, depth * ppm
+        dx, dy = (w + panel.gap) * ppm, (depth + gap_between_rows) * ppm
+        count = math.ceil((maxx - minx) / max(dx, 1e-6)) * math.ceil(
+            (maxy - miny) / max(dy, 1e-6))
         if count > MAX_CANDIDATES:
             raise ValueError(
                 "Scale creates too many candidate panels. Check your measurement or select a smaller roof."

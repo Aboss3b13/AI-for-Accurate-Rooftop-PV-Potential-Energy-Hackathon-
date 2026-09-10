@@ -670,6 +670,36 @@ instead of showing a bare zero.
 
 ---
 
+## How the modules are laid out
+
+A pitched roof and a flat roof are mounted differently, and the layout follows
+that rather than filling every square metre the same way.
+
+**On a pitched roof** modules lie flush against the slope, shoulder to shoulder
+with a couple of centimetres between them. That block *is* the standard layout.
+
+**On a flat roof** they sit on tilted racks, and a rack shades the one behind
+it. Rows are therefore spaced by the shadow the design sun casts:
+
+```text
+gap = module length x sin(tilt) / tan(sun altitude)
+```
+
+At the default 15° tilt against the winter-solstice noon sun on the Swiss
+plateau (19.2°), a 1.76 m module occupies **1.70 m** of roof and needs **1.31 m**
+behind it — a row pitch of 3.01 m, nearly twice the module. Tilt, design sun
+altitude and an explicit row gap are all configurable.
+
+The module drawn on the map is the rack's **footprint**, not the module, because
+a leaning module covers less roof than its own length.
+
+This is not a cosmetic change. A flat Oerlikon roof previously packed **82**
+modules edge to edge, which no installer could build; spaced properly it holds
+**41**. Across ten cantons the flat-roof counts roughly halve and the pitched
+ones are untouched.
+
+---
+
 ## Read this before trusting a number
 
 SolarFit is an **honest estimate, not an installation plan.**

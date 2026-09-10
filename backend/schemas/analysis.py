@@ -10,6 +10,13 @@ class PanelConfig(BaseModel):
     height: float = Field(1.762, ge=0.5, le=4)
     power: float = Field(450, ge=50, le=1000)
     gap: float = Field(0.02, ge=0, le=0.5)
+    # Ballasted racks on a flat roof. A pitched roof mounts flush and ignores
+    # both of these: its modules follow the roof and need no row spacing.
+    flat_roof_tilt_deg: float = Field(15, ge=0, le=45)
+    # Sun altitude the row spacing is designed against. The default is noon at
+    # the winter solstice on the Swiss plateau, the usual conservative choice.
+    design_sun_altitude_deg: float = Field(19.2, ge=5, le=60)
+    row_gap_m: float | None = Field(None, ge=0, le=10)
 
 
 class MarkedObject(BaseModel):

@@ -132,3 +132,54 @@ def test_filling_ignores_the_area_outside_the_shape():
     mask[40:60, 40:60] = 1
     # The surrounding background touches the frame and must not be filled in.
     assert pv.fill_small_holes(mask, 100000)[0, 0] == 0
+
+
+def red_tile_roof(noise=4.0, seed=11):
+    """A clay roof: strongly red-dominant, so nothing on it reads as blue."""
+    rng = np.random.default_rng(seed)
+    image = np.zeros((SIZE, SIZE, 3), np.float32)
+    for channel, level in enumerate((165, 120, 100)):
+        image[..., channel] = level + rng.normal(0, noise, (SIZE, SIZE))
+    return np.clip(image, 0, 255).astype(np.uint8)
+
+
+def put_dark_array(image, x0, y0, x1, y1, seed=12):
+    """All-black modules: darker than the tiles, and only relatively bluer."""
+    rng = np.random.default_rng(seed)
+    patch = image[y0:y1, x0:x1].astype(np.float32)
+    patch[..., 0] = 42 + rng.normal(0, 3, patch.shape[:2])
+    patch[..., 1] = 44 + rng.normal(0, 3, patch.shape[:2])
+    patch[..., 2] = 52 + rng.normal(0, 3, patch.shape[:2])
+    patch[::11, :, :] += 30
+    patch[:, ::11, :] += 30
+    image[y0:y1, x0:x1] = np.clip(patch, 0, 255).astype(np.uint8)
+    return image
+
+
+def test_a_dark_array_on_a_red_roof_is_found():
+    # It never reaches the absolute blue floor, only relative blueness plus
+    # being much darker than the tiles around it.
+    image = put_dark_array(red_tile_roof(), 60, 60, 180, 170)
+    found = pv.detect(image, ROOF, PPM)
+    assert found
+    assert max(f["area_m2"] for f in found) > 80
+
+
+def test_a_bare_red_roof_claims_nothing():
+    assert pv.detect(red_tile_roof(), ROOF, PPM) == []
+
+
+def test_darkness_never_overrides_a_working_blue_cue():
+    """On a light roof the blue cue works, and darkness must stay out of it.
+
+    Letting both run swept shade and darker bare roof into a Binzstrasse
+    warehouse, inflating an accurate 1,621 m2 to 2,035 m2.
+    """
+    image = put_array(roof_image(), 60, 60, 180, 170)
+    # A dark but featureless patch elsewhere: shade, not modules.
+    image[190:215, 30:90] = (70, 68, 66)
+    found = pv.detect(image, ROOF, PPM)
+    assert found
+    for face in found:
+        # Nothing reported down in the shaded strip.
+        assert face["geometry"].centroid.y < 190

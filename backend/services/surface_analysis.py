@@ -1,6 +1,9 @@
 from backend.services.planning_service import planning_constraints
 """Reuse detections and packing on independent, physical roof surfaces."""
 import hashlib
+
+# Below this a roof is flat enough to need racks rather than flush mounting.
+FLAT_PITCH_DEG = 5.0
 import math
 import time
 import numpy as np
@@ -11,7 +14,7 @@ from shapely.errors import GEOSException
 from shapely.ops import transform, unary_union
 from backend.services.runtime_cache import captures
 from backend.services.geometry_service import build_usable, polygon_from_points
-from backend.services.panel_optimizer import optimise_panels
+from backend.services.panel_optimizer import flat_roof_layout, optimise_panels
 from backend.services.energy_service import capacity
 from backend.services.confidence_service import summarise_confidence
 from backend.services.sunlight_service import sunlight_exclusions, public_sunlight
@@ -192,7 +195,12 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
         # Existing alignment control acts as an offset from automatic face alignment.
         angle -= settings.angle - context["default_angle"]
         diagnostics = plane.describe()
-        physical_panels, orientation = optimise_panels(usable, 1, settings.panel, angle, diagnostics)
+        # A flat roof carries tilted racks that shade each other; a pitched one
+        # mounts flush and needs no row spacing.
+        tilted = diagnostics["pitch_deg"] <= FLAT_PITCH_DEG
+        diagnostics["mounting"] = "tilted racks" if tilted else "flush to the pitch"
+        physical_panels, orientation = optimise_panels(
+            usable, 1, settings.panel, angle, diagnostics, tilted=tilted)
         solar = solar_data(face["properties"], settings.annual_specific_yield, settings.performance_ratio)
         sunlight = face.get("sunlight", {"available": False, "reason": "No surrounding height analysis."})
         assessment = assess_face(plane, solar, sunlight, settings)
@@ -204,7 +212,8 @@ def analyse_surfaces(image, settings, objects, warnings, model, start=None):
                 panels = []
             elif not shaded.is_empty:
                 usable = usable.difference(shaded)
-                panels, orientation = optimise_panels(usable, 1, settings.panel, angle, diagnostics)
+                panels, orientation = optimise_panels(
+                    usable, 1, settings.panel, angle, diagnostics, tilted=tilted)
             panels = grouped_panels(panels, settings.panel.gap, settings.minimum_array_panels)
             if not panels and assessment["eligible"] and physical_panels:
                 assessment["status"] = "not_recommended"
