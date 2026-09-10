@@ -28,6 +28,7 @@ from backend.services.rooflight_service import detect as detect_rooflights
 from backend.services.pv_field_service import detect as detect_pv_fields
 from backend.services.pv_register_service import RegisterUnavailable, registered_pv
 from backend.services import vintage_service
+from backend.services.geneva_service import superstructures, surveyed_polygons
 
 API = "https://api3.geo.admin.ch/rest/services/ech"
 ROOF_LAYER = "ch.bfe.solarenergie-eignung-daecher"
@@ -804,11 +805,28 @@ async def _prepare_capture(selection: MapSelection) -> dict:
             except RegisterUnavailable as exc:
                 warnings.append(f"Registered PV could not be checked ({exc}).")
         address = await building_address(client, all_geometry, click, egids)
+        geneva = []
+        if all_geometry is not None:
+            try:
+                key = "geneva:" + json.dumps(grid["bbox"])
+                geneva = geodata.get(key)
+                if geneva is None:
+                    geneva = await superstructures(client, grid["bbox"])
+                    geodata.put(key, geneva)
+            except (httpx.HTTPError, ValueError):
+                geneva = []
+                warnings.append("Geneva surveyed superstructures unavailable; image and height detection remain active.")
     props = selected["properties"] if selected else {}
     roof_pixels = (
         pixel_ring(geometry.exterior.coords, grid) if geometry is not None else []
     )
     objects = []
+    if all_geometry is not None:
+        for part, attributes in surveyed_polygons(geneva, all_geometry):
+            objects.append({"polygon": pixel_ring(part.exterior.coords, grid),
+                            "kind": "other_obstacle", "source": "map"})
+        if geneva:
+            warnings.append("Included surveyed Geneva rooftop superstructures (SITG). Survey dates may differ from the aerial image; the catalogue is not exhaustive.")
     if geometry is not None:
         for ring in geometry.interiors:
             hole = Polygon(ring).simplify(0.05, preserve_topology=True)

@@ -60,34 +60,46 @@ if __name__ == "__main__":
             sys.exit(1)
 
     port = 8000
+    existing = None
     try:
         with urllib.request.urlopen(
             f"http://127.0.0.1:{port}/api/health", timeout=1
         ) as response:
             import json
 
-            data = json.load(response)
-            if data.get("app") == "SolarFit":
-                from backend.runtime_version import source_revision
-                if data.get("backend_revision") != source_revision():
-                    print("An older SolarFit backend is still running on port 8000. Close its server window and run START_SOLARFIT.bat again. Reloading the browser alone cannot update the backend.")
-                    sys.exit(1)
-                open_app(f"http://127.0.0.1:{port}")
-                if TUNNEL_PROCESSES:
-                    print("Keep this window open to share SolarFit. Ctrl+C stops this tunnel.")
-                    try:
-                        TUNNEL_PROCESSES[0].wait()
-                    except KeyboardInterrupt:
-                        TUNNEL_PROCESSES[0].terminate()
-                sys.exit(0)
+            existing = json.load(response)
     except Exception:
-        pass
+        existing = None
+
+    if existing and existing.get("app") == "SolarFit":
+        from backend.runtime_version import source_revision
+
+        if existing.get("backend_revision") == source_revision():
+            # Already serving this exact code: just show it.
+            open_app(f"http://127.0.0.1:{port}")
+            if TUNNEL_PROCESSES:
+                print("Keep this window open to share SolarFit. Ctrl+C stops this tunnel.")
+                try:
+                    TUNNEL_PROCESSES[0].wait()
+                except KeyboardInterrupt:
+                    TUNNEL_PROCESSES[0].terminate()
+            sys.exit(0)
+        # Reloading the browser cannot replace a running backend, so close the
+        # stale one here instead of asking someone to go and find its window.
+        print(f"An older SolarFit backend is running on port {port}. Replacing it...")
+        from scripts.port_guard import replace_previous
+
+        if not replace_previous(port):
+            sys.exit(1)
+
     with socket.socket() as sock:
         try:
             sock.bind(("127.0.0.1", port))
         except OSError:
-            print("Port 8000 is occupied. Close that app, then start SolarFit again.")
-            sys.exit(1)
+            from scripts.port_guard import replace_previous
+
+            if not replace_previous(port):
+                sys.exit(1)
     threading.Thread(
         target=open_when_ready, args=(f"http://127.0.0.1:{port}",), daemon=True
     ).start()

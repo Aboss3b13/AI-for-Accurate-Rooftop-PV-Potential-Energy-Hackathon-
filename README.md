@@ -165,6 +165,11 @@ Keep the app and tunnel running. The frontend and `/api` use the same origin, so
 | The page loads but the map is blank | The map needs internet. The AI itself runs offline, but the aerial photos are downloaded live |
 | Changes are not showing | Close the running SolarFit console and start it again. The launcher rebuilds changed frontend code; `REBUILD_SOLARFIT.bat` also refreshes setup |
 
+Starting SolarFit twice is fine: the launcher checks port 8000, and if an older
+SolarFit backend is there it **closes that one first**. A browser reload cannot
+replace a running backend, so this is done for you. Anything on the port that is
+not SolarFit is left alone and reported instead.
+
 The console window keeps the full error text on screen — it waits for a keypress instead of closing, so you can read it. On macOS or Linux there is no `.bat` launcher; follow [Development](#development) instead.
 
 ---

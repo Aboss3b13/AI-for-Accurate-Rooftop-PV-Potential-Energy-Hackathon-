@@ -12,9 +12,10 @@ def main():
     parser.add_argument("--data", default="data/yolo/dataset.yaml")
     parser.add_argument(
         "--model",
-        choices=["yolo11n-seg.pt", "yolo11s-seg.pt"],
         default="yolo11s-seg.pt",
     )
+    parser.add_argument("--lr0", type=float, default=.001)
+    parser.add_argument("--patience", type=int, default=12)
     parser.add_argument("--imgsz", type=int, default=512)
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch", type=int, default=4)
@@ -41,7 +42,9 @@ def main():
         project=str(Path("runs/segment").resolve()),
         name=args.name,
         seed=42,
-        patience=12,
+        patience=args.patience,
+        optimizer="AdamW",
+        lr0=args.lr0,
         degrees=30,
         fliplr=0.5,
         flipud=0.5,

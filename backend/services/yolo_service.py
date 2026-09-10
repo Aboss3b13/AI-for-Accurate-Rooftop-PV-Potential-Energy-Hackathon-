@@ -16,7 +16,12 @@ ALIASES = {
 
 
 class YoloService:
-    def __init__(self):
+    def __init__(self, model_env="MODEL_PATH", default_path="models/rooftop_best.pt",
+                 confidence_env="DETECTION_CONFIDENCE", obstacle_only=False):
+        self.model_env = model_env
+        self.default_path = default_path
+        self.confidence_env = confidence_env
+        self.obstacle_only = obstacle_only
         self.model = None
         self.signature = None
         self.lock = Lock()
@@ -25,7 +30,7 @@ class YoloService:
         self.refiner = SamRefiner()
 
     def status(self):
-        path = Path(os.getenv("MODEL_PATH", "models/rooftop_best.pt"))
+        path = Path(os.getenv(self.model_env, self.default_path))
         return {
             "available": path.is_file(),
             "model": path.name,
@@ -36,7 +41,7 @@ class YoloService:
         }
 
     def detect(self, image):
-        path = Path(os.getenv("MODEL_PATH", "models/rooftop_best.pt"))
+        path = Path(os.getenv(self.model_env, self.default_path))
         if not path.is_file():
             return (
                 [],
@@ -45,7 +50,8 @@ class YoloService:
                 ],
                 self.status(),
             )
-        signature = (str(path.resolve()), path.stat().st_mtime_ns)
+        signature = (str(path.resolve()), path.stat().st_mtime_ns,
+                     os.getenv(self.confidence_env, ".25"), os.getenv("INFERENCE_SIZE", "640"))
         key = hashlib.sha256(str(image.size).encode() + image.tobytes()).hexdigest()
         with self.lock:
             try:
@@ -59,7 +65,8 @@ class YoloService:
                     names = {
                         ALIASES.get(str(n), str(n)) for n in self.model.names.values()
                     }
-                    if not names or not names.issubset(CLASSES):
+                    allowed = {"other_obstacle"} if self.obstacle_only else CLASSES
+                    if not names or not names.issubset(allowed):
                         raise ValueError(
                             "Model classes must be rooftop classes; generic COCO weights cannot detect PV"
                         )
@@ -79,7 +86,7 @@ class YoloService:
                     return self.cache[key]
                 kwargs = dict(
                     imgsz=int(os.getenv("INFERENCE_SIZE", "640")),
-                    conf=float(os.getenv("DETECTION_CONFIDENCE", ".25")),
+                    conf=float(os.getenv(self.confidence_env, ".25")),
                     verbose=False,
                     retina_masks=True,
                 )
@@ -116,7 +123,9 @@ class YoloService:
                 if sam_warning:
                     warnings.append(sam_warning)
                 names = {ALIASES.get(str(n), str(n)) for n in self.model.names.values()}
-                if not {"chimney", "skylight", "other_obstacle"}.issubset(names):
+                if self.obstacle_only:
+                    warnings.append("AI superstructure candidates use Geneva survey labels. The model does not distinguish chimneys from windows; verify candidates outside Geneva and on newer imagery.")
+                elif not {"chimney", "skylight", "other_obstacle"}.issubset(names):
                     warnings.append(
                         "This model detects PV only or has incomplete obstacle coverage. Mark rooftop obstacles manually."
                     )
@@ -141,3 +150,5 @@ class YoloService:
 
 
 yolo = YoloService()
+obstacle_yolo = YoloService("OBSTACLE_MODEL_PATH", "models/obstacle_best.pt",
+                            "OBSTACLE_CONFIDENCE", obstacle_only=True)

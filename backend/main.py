@@ -15,7 +15,7 @@ from starlette.concurrency import run_in_threadpool
 from backend.schemas.analysis import AnalysisSettings
 from backend.services.geometry_service import polygon_from_points, build_usable, geojson
 from backend.services.panel_optimizer import optimise_panels
-from backend.services.yolo_service import yolo
+from backend.services.yolo_service import yolo, obstacle_yolo
 from backend.services.energy_service import capacity
 from backend.services.confidence_service import summarise_confidence
 from backend.map_routes import router as map_router
@@ -41,7 +41,8 @@ async def unexpected_error(request, exc):
 def health():
     return {"app": "SolarFit", "version": "1.2.0", "backend_revision": LOADED_REVISION,
             "restart_required": LOADED_REVISION != source_revision(), "capabilities": ["shadow_preview"],
-            "geometry": "official_roof_surfaces_with_sunlight_screening", "status": "ok", "model": yolo.status()}
+            "geometry": "official_roof_surfaces_with_sunlight_screening", "status": "ok", "model": yolo.status(),
+            "obstacle_model": obstacle_yolo.status()}
 
 
 def analyse(image, settings):
@@ -58,6 +59,11 @@ def analyse(image, settings):
     if settings.use_ai:
         detected, warnings, model = yolo.detect(image)
         warnings = list(warnings)
+        if obstacle_yolo.status()["available"]:
+            obstacles, obstacle_warnings, obstacle_model = obstacle_yolo.detect(image)
+            detected = [*detected, *obstacles]
+            warnings.extend(obstacle_warnings)
+            model = {**model, "obstacle_model": obstacle_model}
     else:
         detected, warnings, model = (
             [],
